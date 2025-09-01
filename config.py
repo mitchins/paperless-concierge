@@ -39,13 +39,42 @@ elif AUTHORIZED_USERS_STR:
     PAPERLESS_AI_TOKEN = os.getenv("PAPERLESS_AI_TOKEN")
 
     if not PAPERLESS_URL:
-        raise ValueError("PAPERLESS_URL is required in global mode")
+        raise ValueError(
+            "❌ PAPERLESS_URL missing!\n\n"
+            "Please add this to your .env file:\n"
+            "   PAPERLESS_URL=http://your-paperless-server:8000\n\n"
+            "💡 This should be the full URL to your Paperless-NGX instance"
+        )
     if not PAPERLESS_TOKEN:
-        raise ValueError("PAPERLESS_TOKEN is required in global mode")
+        raise ValueError(
+            "❌ PAPERLESS_TOKEN missing!\n\n"
+            "Please add this to your .env file:\n"
+            "   PAPERLESS_TOKEN=your_paperless_api_token\n\n"
+            "💡 Get this from Paperless-NGX Settings → API Tokens"
+        )
 else:
     raise ValueError(
-        "Either AUTHORIZED_USERS (global mode) or USER_CONFIG_FILE (user-scoped mode) must be set"
+        "❌ Configuration missing!\n\n"
+        "Please create a .env file with either:\n\n"
+        "📋 Global mode (single Paperless instance for all users):\n"
+        "   TELEGRAM_BOT_TOKEN=your_bot_token_from_@BotFather\n"
+        "   AUTHORIZED_USERS=123456789,987654321  # Your Telegram user IDs\n"
+        "   PAPERLESS_URL=http://your-paperless-server:8000\n"
+        "   PAPERLESS_TOKEN=your_paperless_api_token\n\n"
+        "🔧 User-scoped mode (per-user configurations):\n"
+        "   TELEGRAM_BOT_TOKEN=your_bot_token_from_@BotFather\n"
+        "   USER_CONFIG_FILE=users.yaml\n\n"
+        "💡 Run 'python setup.py' for an interactive setup wizard!"
     )
 
 if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
+    raise ValueError(
+        "❌ TELEGRAM_BOT_TOKEN missing!\n\n"
+        "Please add this to your .env file:\n"
+        "   TELEGRAM_BOT_TOKEN=your_bot_token_here\n\n"
+        "💡 Get a bot token from @BotFather on Telegram:\n"
+        "   1. Start a chat with @BotFather\n"
+        "   2. Send /newbot and follow instructions\n"
+        "   3. Copy the token to your .env file\n\n"
+        "🔧 Run 'python setup.py' for help!"
+    )

@@ -27,3 +27,4 @@ coverage.xml
 
 # Cache directories
 .paperless_concierge_cache/
+bandit-report.json

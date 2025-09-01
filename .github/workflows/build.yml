@@ -57,7 +57,7 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
+        files: ./coverage.xml
         fail_ci_if_error: false
         verbose: true
 
@@ -132,6 +132,18 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.13"
+
+    - name: Create test environment file
+      run: |
+        cat > .env << EOF
+        TELEGRAM_BOT_TOKEN=mock_token_for_tests
+        AUTH_MODE=global
+        AUTHORIZED_USERS=123456789,987654321
+        PAPERLESS_URL=http://mock-paperless:8000
+        PAPERLESS_TOKEN=mock_paperless_token
+        PAPERLESS_AI_URL=http://mock-ai:8080
+        PAPERLESS_AI_TOKEN=mock_ai_token
+        EOF
 
     - name: Test installation
       run: |
