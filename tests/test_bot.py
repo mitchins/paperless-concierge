@@ -72,8 +72,6 @@ async def test_paperless_connection():
         # Simulate successful connection (would use aioresponses in full test suite)
         print("✅ Successfully connected to Paperless-NGX!")
         print(f"   Documents in system: 42")
-        # No return; assertions above are sufficient
-        assert True
 
     except Exception as e:
         print(f"❌ Failed to connect to Paperless-NGX: {e}")
@@ -114,7 +112,9 @@ async def test_telegram_token():
             print("✅ Bot token test passed!")
             print(f"   Bot name: {bot_info.first_name}")
             print(f"   Bot username: @{bot_info.username}")
-            assert True
+            # Validate mocked data rather than asserting a constant
+            assert bot_info.first_name == "Test Bot"
+            assert bot_info.username == "testbot"
 
     except (ValueError, AttributeError, OSError) as e:
         print(f"❌ Invalid Telegram bot token: {e}")
@@ -136,7 +136,6 @@ async def test_imports():
             assert False, f"Failed to import module: {module} ({e})"
 
     print("✅ All modules imported successfully!")
-    assert True
 
 
 async def run_tests():

@@ -49,6 +49,7 @@ dev = [
 
 [project.scripts]
 paperless-concierge = "paperless_concierge.bot:main"
+paperless-get-user-id = "paperless_concierge.cli.get_user_id:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -56,12 +56,16 @@ flowchart TD
 
 3. **Get Your User ID**:
    ```bash
-   python get_user_id.py
+   paperless-get-user-id
+   # or, without installing the package
+   python -m paperless_concierge.cli.get_user_id
    ```
 
 4. **Run**:
    ```bash
-   python bot.py
+   paperless-concierge
+   # or, without installing the package
+   python -m paperless_concierge.bot
    ```
 
 ## Usage
