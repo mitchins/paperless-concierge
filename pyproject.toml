@@ -119,7 +119,6 @@ source = ["src"]
 omit = [
     "tests/*",
     "setup.py",
-    "get_user_id.py",
     "venv/*",
     "*/__pycache__/*",
     "*.pyc",
