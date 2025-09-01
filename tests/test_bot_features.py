@@ -422,7 +422,7 @@ async def test_query_documents_ai_success():
         update.message.reply_text = AsyncMock(return_value=Mock(edit_text=AsyncMock()))
 
         client = Mock()
-        client.ask_ai_question = AsyncMock(
+        client.query_ai = AsyncMock(
             return_value={
                 "success": True,
                 "answer": "Answer",
@@ -434,8 +434,8 @@ async def test_query_documents_ai_success():
         )
         with patch.object(bot, "get_paperless_client", return_value=client):
             await bot.query_documents(update, context)
-            args = update.message.reply_text.return_value.edit_text.await_args()
-            assert "AI Assistant" in args.args[0]
+            call = update.message.reply_text.return_value.edit_text.await_args
+            assert "AI Assistant" in call.args[0]
 
 
 async def test_check_status():
