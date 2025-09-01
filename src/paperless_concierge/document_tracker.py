@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 import aiohttp
 import diskcache as dc
 
-from constants import (
+from .constants import (
     AI_PROCESSING_TIMEOUT,
     AI_TRIGGER_MAX_RETRIES,
     CACHE_EXPIRE_TIME,

@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 import aiofiles
 import aiohttp
 
-from config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
-from constants import HTTPStatus
+from .config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
+from .constants import HTTPStatus
 
 logger = logging.getLogger(__name__)
 

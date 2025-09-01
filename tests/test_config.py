@@ -8,6 +8,9 @@ import sys
 import pytest
 from unittest.mock import patch
 
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
+
 
 def test_missing_config_first():
     """Test ValueError when neither AUTHORIZED_USERS nor USER_CONFIG_FILE are provided."""
@@ -16,10 +19,10 @@ def test_missing_config_first():
         "dotenv.load_dotenv"
     ) as mock_load_dotenv:
         mock_load_dotenv.return_value = None
-        if "config" in sys.modules:
-            del sys.modules["config"]
+        if "paperless_concierge.config" in sys.modules:
+            del sys.modules["paperless_concierge.config"]
         with pytest.raises(ValueError, match="❌ Configuration missing!"):
-            import config  # noqa: F401
+            import paperless_concierge.config  # noqa: F401
 
 
 def test_missing_paperless_token():
@@ -33,10 +36,10 @@ def test_missing_paperless_token():
         "dotenv.load_dotenv"
     ) as mock_load_dotenv:
         mock_load_dotenv.return_value = None
-        if "config" in sys.modules:
-            del sys.modules["config"]
+        if "paperless_concierge.config" in sys.modules:
+            del sys.modules["paperless_concierge.config"]
         with pytest.raises(ValueError, match="❌ PAPERLESS_TOKEN missing!"):
-            import config  # noqa: F401
+            import paperless_concierge.config  # noqa: F401
 
 
 def test_missing_paperless_url():
@@ -49,7 +52,7 @@ def test_missing_paperless_url():
         "dotenv.load_dotenv"
     ) as mock_load_dotenv:
         mock_load_dotenv.return_value = None
-        if "config" in sys.modules:
-            del sys.modules["config"]
+        if "paperless_concierge.config" in sys.modules:
+            del sys.modules["paperless_concierge.config"]
         with pytest.raises(ValueError, match="❌ PAPERLESS_URL missing!"):
-            import config  # noqa: F401
+            import paperless_concierge.config  # noqa: F401

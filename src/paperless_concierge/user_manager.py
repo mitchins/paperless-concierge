@@ -5,7 +5,7 @@ from typing import Dict, Optional, Set
 
 import yaml
 
-from config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
+from .config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
 
 logger = logging.getLogger(__name__)
 
