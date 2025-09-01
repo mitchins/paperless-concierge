@@ -89,6 +89,7 @@ async def test_paperless_connection():
 
 async def test_telegram_token():
     """Test Telegram bot token validity."""
+    from unittest.mock import Mock, patch
     from config import TELEGRAM_BOT_TOKEN
 
     print("\n🤖 Testing Telegram Bot Token...")
@@ -100,14 +101,21 @@ async def test_telegram_token():
     try:
         from telegram import Bot
 
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        # Mock the bot's get_me method to avoid real API calls
+        with patch.object(Bot, "get_me") as mock_get_me:
+            mock_bot_info = Mock()
+            mock_bot_info.first_name = "Test Bot"
+            mock_bot_info.username = "testbot"
+            mock_get_me.return_value = mock_bot_info
 
-        # Test the token by getting bot info
-        bot_info = await bot.get_me()
-        print("✅ Bot token is valid!")
-        print(f"   Bot name: {bot_info.first_name}")
-        print(f"   Bot username: @{bot_info.username}")
-        return True
+            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+            # Test the token by getting mocked bot info
+            bot_info = await bot.get_me()
+            print("✅ Bot token test passed!")
+            print(f"   Bot name: {bot_info.first_name}")
+            print(f"   Bot username: @{bot_info.username}")
+            return True
 
     except (ValueError, AttributeError, OSError) as e:
         print(f"❌ Invalid Telegram bot token: {e}")

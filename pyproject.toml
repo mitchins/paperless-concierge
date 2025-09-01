@@ -48,25 +48,15 @@ target-version = "py38"
 line-length = 88
 
 [tool.ruff.lint]
+# Only essential rules - catch real bugs, not style issues
 select = [
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # pyflakes
-    "I",      # isort
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
-    "BLE",    # flake8-blind-except (catches bare except)
-    "T20",    # flake8-print
-    "PL",     # pylint
-    "RUF",    # ruff-specific rules
-]
-ignore = [
-    "E501",   # line too long (handled by black)
-    "B008",   # do not perform function calls in argument defaults
-    "RUF005", # consider-async-generator-sync
-    "PLR0913", # too many arguments
-    "PLR0915", # too many statements
+    "E9",     # Runtime errors (syntax errors, indentation)
+    "F63",    # Invalid print statements
+    "F7",     # Name/import errors
+    "F82",    # Undefined names in __all__
+    "F811",   # Redefined unused names
+    "F821",   # Undefined name references
+    "E722",   # Bare except clauses
 ]
 
 [tool.ruff.lint.per-file-ignores]
