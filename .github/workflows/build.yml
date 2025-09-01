@@ -28,8 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest-cov
+        pip install -e ".[dev]"
 
     - name: Create test environment file
       run: |
@@ -45,7 +44,6 @@ jobs:
 
     - name: Lint and format check
       run: |
-        pip install ruff black
         ruff check .
         black --check . || true
 
@@ -88,8 +86,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest-cov ruff bandit safety
+        pip install -e ".[dev]"
 
     - name: Create test environment file
       run: |
@@ -147,9 +144,10 @@ jobs:
     - name: Test installation
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        python -c "import sys; sys.path.insert(0, 'src'); import paperless_concierge; print('✅ Package imports successfully')"
+        pip install -e "."
+        paperless-concierge --help
 
-    - name: Verify setup script
+    - name: Verify package build
       run: |
-        python setup.py --help
+        pip install build
+        python -m build --wheel
