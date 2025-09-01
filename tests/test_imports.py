@@ -6,18 +6,18 @@ Simple import tests to validate package structure and basic functionality.
 import os
 import sys
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 
 def test_imports():
     """Test that all modules can be imported without errors"""
     try:
-        import bot  # noqa: F401
-        import config  # noqa: F401
-        import document_tracker  # noqa: F401
-        import paperless_client  # noqa: F401
-        import user_manager  # noqa: F401
+        import paperless_concierge  # noqa: F401
+        from paperless_concierge import config  # noqa: F401
+        from paperless_concierge import document_tracker  # noqa: F401
+        from paperless_concierge import paperless_client  # noqa: F401
+        from paperless_concierge import user_manager  # noqa: F401
 
         print("✅ All modules imported successfully")
         return True
@@ -29,9 +29,9 @@ def test_imports():
 def test_basic_functionality():
     """Test basic functionality of key classes"""
     try:
-        from document_tracker import DocumentTracker
-        from paperless_client import PaperlessClient
-        from user_manager import UserManager
+        from paperless_concierge.document_tracker import DocumentTracker
+        from paperless_concierge.paperless_client import PaperlessClient
+        from paperless_concierge.user_manager import UserManager
 
         # Test client creation
         client = PaperlessClient(
@@ -65,7 +65,7 @@ def test_basic_functionality():
 def test_configuration():
     """Test configuration loading"""
     try:
-        import config
+        from paperless_concierge import config
 
         # Should have loaded environment variables
         assert hasattr(config, "TELEGRAM_BOT_TOKEN")

@@ -10,13 +10,17 @@ import sys
 
 import aiohttp
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 
 def test_config():
     """Test configuration validation."""
-    from config import PAPERLESS_TOKEN, PAPERLESS_URL, TELEGRAM_BOT_TOKEN
+    from paperless_concierge.config import (
+        PAPERLESS_TOKEN,
+        PAPERLESS_URL,
+        TELEGRAM_BOT_TOKEN,
+    )
 
     print("🔧 Testing Configuration...")
 
@@ -54,8 +58,8 @@ def test_config():
 
 async def test_paperless_connection():
     """Test connection to Paperless-NGX API."""
-    from config import PAPERLESS_TOKEN, PAPERLESS_URL
-    from constants import HTTPStatus
+    from paperless_concierge.config import PAPERLESS_TOKEN, PAPERLESS_URL
+    from paperless_concierge.constants import HTTPStatus
 
     print("\n📡 Testing Paperless-NGX Connection...")
 
@@ -90,7 +94,7 @@ async def test_paperless_connection():
 async def test_telegram_token():
     """Test Telegram bot token validity."""
     from unittest.mock import Mock, patch
-    from config import TELEGRAM_BOT_TOKEN
+    from paperless_concierge.config import TELEGRAM_BOT_TOKEN
 
     print("\n🤖 Testing Telegram Bot Token...")
 
@@ -183,7 +187,7 @@ async def run_tests():
     else:
         print(f"\n⚠️  {total - passed} test(s) failed. Please fix the issues above.")
 
-        from config import TELEGRAM_BOT_TOKEN
+        from paperless_concierge.config import TELEGRAM_BOT_TOKEN
 
         if not TELEGRAM_BOT_TOKEN:
             print("\n📝 To get a Telegram bot token:")

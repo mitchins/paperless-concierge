@@ -10,8 +10,8 @@ import sys
 import tempfile
 from unittest.mock import patch
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 # Mock the config to avoid requiring real tokens
 mock_config = {
@@ -30,7 +30,7 @@ async def test_paperless_client():
     print("🧪 Testing PaperlessClient (mocked)...")
 
     with patch.dict("os.environ", mock_config):
-        from paperless_client import PaperlessClient
+        from paperless_concierge.paperless_client import PaperlessClient
 
         # Create client with explicit parameters to bypass config
         client = PaperlessClient(
@@ -68,11 +68,19 @@ async def test_bot_handlers():
 
     # Mock all the external dependencies
     with patch.dict("os.environ", mock_config):
-        with patch("config.TELEGRAM_BOT_TOKEN", mock_config["TELEGRAM_BOT_TOKEN"]):
-            with patch("config.PAPERLESS_URL", mock_config["PAPERLESS_URL"]):
-                with patch("config.PAPERLESS_TOKEN", mock_config["PAPERLESS_TOKEN"]):
+        with patch(
+            "paperless_concierge.config.TELEGRAM_BOT_TOKEN",
+            mock_config["TELEGRAM_BOT_TOKEN"],
+        ):
+            with patch(
+                "paperless_concierge.config.PAPERLESS_URL", mock_config["PAPERLESS_URL"]
+            ):
+                with patch(
+                    "paperless_concierge.config.PAPERLESS_TOKEN",
+                    mock_config["PAPERLESS_TOKEN"],
+                ):
                     # Import after patching
-                    from bot import TelegramConcierge
+                    from paperless_concierge.bot import TelegramConcierge
 
                     concierge = TelegramConcierge()
 
@@ -165,11 +173,11 @@ async def test_user_manager():
         # Need to re-import to pick up the new environment variables
         import importlib
 
-        import config
+        from paperless_concierge import config
 
         importlib.reload(config)
 
-        from user_manager import UserManager
+        from paperless_concierge.user_manager import UserManager
 
         # Test global mode with explicit mock config
         user_manager = UserManager(auth_mode="global")
@@ -181,7 +189,7 @@ async def test_user_manager():
         assert not user_manager.is_authorized(111111111)
 
         # Test with mocked user config instead of relying on environment
-        from user_manager import UserConfig
+        from paperless_concierge.user_manager import UserConfig
 
         mock_user_config = UserConfig(
             user_id=123456789,

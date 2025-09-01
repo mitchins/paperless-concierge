@@ -10,8 +10,8 @@ import sys
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, Mock, patch
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 
 # Mock Telegram objects
@@ -77,10 +77,10 @@ class MockFile:
 async def test_document_upload_workflow():
     """Test complete document upload workflow with mocks"""
 
-    from bot import TelegramConcierge
+    from paperless_concierge.bot import TelegramConcierge
 
     # Mock user manager
-    with patch("bot.get_user_manager") as mock_get_user_manager:
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
         mock_user_manager = Mock()
         mock_user_manager.is_authorized.return_value = True
         mock_user_manager.get_user_config.return_value = Mock(
@@ -144,7 +144,7 @@ async def test_document_upload_workflow():
 async def test_ai_processing_workflow():
     """Test AI processing workflow with mocks"""
 
-    from paperless_client import PaperlessClient
+    from paperless_concierge.paperless_client import PaperlessClient
 
     client = PaperlessClient(
         paperless_url="http://test:8000",
@@ -167,7 +167,7 @@ async def test_ai_processing_workflow():
 async def test_state_persistence():
     """Test document tracker state persistence"""
 
-    from document_tracker import DocumentTracker, TrackedDocument
+    from paperless_concierge.document_tracker import DocumentTracker, TrackedDocument
 
     # Mock telegram application
     mock_app = Mock()
@@ -208,12 +208,12 @@ async def test_state_persistence():
 async def test_error_handling():
     """Test error handling and resilience"""
 
-    from bot import TelegramConcierge
+    from paperless_concierge.bot import TelegramConcierge
 
     bot = TelegramConcierge()
 
     # Test with invalid update
-    with patch("bot.get_user_manager") as mock_get_user_manager:
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
         mock_user_manager = Mock()
         mock_user_manager.is_authorized.return_value = True
         mock_user_manager.get_user_config.return_value = None  # No config
@@ -241,8 +241,8 @@ async def test_error_handling():
 def test_configuration_validation():
     """Test configuration validation"""
 
-    from config import TELEGRAM_BOT_TOKEN
-    from user_manager import UserManager
+    from paperless_concierge.config import TELEGRAM_BOT_TOKEN
+    from paperless_concierge.user_manager import UserManager
 
     # Test environment variables are loaded
     assert TELEGRAM_BOT_TOKEN is not None

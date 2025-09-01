@@ -29,7 +29,7 @@ class UserManager:
     def __init__(
         self, auth_mode: Optional[str] = None, users_file: Optional[str] = None
     ):
-        from config import AUTH_MODE, USER_CONFIG_FILE
+        from .config import AUTH_MODE, USER_CONFIG_FILE
 
         self.auth_mode = auth_mode or AUTH_MODE
         self.users_file = users_file or USER_CONFIG_FILE or "users.yml"
@@ -43,7 +43,7 @@ class UserManager:
 
     def _load_global_users(self):
         """Load users from environment variable (global mode)."""
-        from config import AUTHORIZED_USERS
+        from .config import AUTHORIZED_USERS
 
         self.authorized_users = AUTHORIZED_USERS
         logger.info(f"Global mode: {len(self.authorized_users)} authorized users")
