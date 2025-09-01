@@ -17,9 +17,9 @@ users:
     paperless_ai:  # Optional
       url: "https://paperless-ai.johndoe.com"
       token: "john_ai_token_here"
-  
+
   987654321:  # Another user
-    name: "Jane Smith" 
+    name: "Jane Smith"
     username: "@janesmith"
     paperless:
       url: "https://paperless.janesmith.com"

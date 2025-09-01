@@ -1,6 +1,6 @@
 # Paperless-NGX Telegram Concierge Makefile
 
-.PHONY: setup test test-unit test-integration clean run dev help
+.PHONY: setup test test-unit test-integration clean run dev help lint ruff ruff-fix bandit vulture format
 
 # Default target
 help:
@@ -16,6 +16,14 @@ help:
 	@echo "  make test-unit     - Run unit tests only"
 	@echo "  make test-integration - Run integration tests (requires real tokens)"
 	@echo "  make test-workflow - Run comprehensive workflow tests"
+	@echo ""
+	@echo "📊 Code Quality:"
+	@echo "  make lint          - Run all quality checks (ruff, bandit, vulture)"
+	@echo "  make ruff          - Run ruff linting"
+	@echo "  make ruff-fix      - Run ruff with auto-fix"
+	@echo "  make bandit        - Run security analysis"
+	@echo "  make vulture       - Run dead code detection"
+	@echo "  make format        - Format code (black + ruff fixes)"
 	@echo ""
 	@echo "🤖 Running:"
 	@echo "  make run           - Run the bot"
@@ -81,3 +89,28 @@ clean-cache:
 dev-basic:
 	@echo "🔧 Basic development mode (manual restart required)"
 	python bot.py
+
+# Code Quality Commands
+lint: ruff bandit vulture
+	@echo "✅ All quality checks completed"
+
+ruff:
+	@echo "🔍 Running ruff linting..."
+	ruff check .
+
+ruff-fix:
+	@echo "🔧 Running ruff with auto-fix..."
+	ruff check --fix .
+
+bandit:
+	@echo "🔒 Running security analysis with bandit..."
+	bandit -r . -c pyproject.toml
+
+vulture:
+	@echo "💀 Running dead code detection with vulture..."
+	vulture . --min-confidence 80
+
+format:
+	@echo "🎨 Formatting code with black and ruff..."
+	black .
+	ruff check --fix .

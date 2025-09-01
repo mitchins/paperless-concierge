@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperless-ngx-telegram-concierge"
+description = "A Telegram bot for uploading documents and querying your Paperless-NGX instance"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Your Name", email = "your.email@example.com"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dynamic = ["version"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "BLE",    # flake8-blind-except (catches bare except)
+    "T20",    # flake8-print
+    "PL",     # pylint
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by black)
+    "B008",   # do not perform function calls in argument defaults
+    "RUF005", # consider-async-generator-sync
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["T20", "PLR2004"]  # Allow print and magic values in tests
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv"]
+skips = ["B101", "B404", "B603", "B601"]  # Skip assert_used, subprocess imports, subprocess calls, shell_injection_process
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]

@@ -21,7 +21,7 @@ A Telegram bot for uploading documents and querying your Paperless-NGX instance 
    cp .env.example .env
    # Edit .env with your tokens and URLs
    ```
-   
+
    Required settings:
    - `TELEGRAM_BOT_TOKEN` - Get from @BotFather
    - `AUTHORIZED_USERS` - Your Telegram user ID
