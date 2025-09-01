@@ -93,28 +93,30 @@ async def test_telegram_token():
 
     try:
         from telegram import Bot
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
 
-        # Mock the bot's get_me method to avoid real API calls
-        with patch.object(Bot, "get_me") as mock_get_me:
-            mock_bot_info = Mock()
-            mock_bot_info.first_name = "Test Bot"
-            mock_bot_info.username = "testbot"
-            mock_get_me.return_value = mock_bot_info
+        # Instantiate and stub instance method directly to be robust even if telegram is mocked elsewhere
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        mock_bot_info = SimpleNamespace(first_name="Test Bot", username="testbot")
+        # Prefer async mock to match real API; fall back to sync call handling below
+        try:
+            bot.get_me = AsyncMock(return_value=mock_bot_info)
+        except Exception:
+            bot.get_me = Mock(return_value=mock_bot_info)
 
-            bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-            # Test the token by getting mocked bot info (handle both sync and async)
-            try:
-                bot_info = await bot.get_me()
-            except TypeError:
-                # If get_me is not awaitable (due to mocking), call it directly
-                bot_info = bot.get_me()
-            print("✅ Bot token test passed!")
-            print(f"   Bot name: {bot_info.first_name}")
-            print(f"   Bot username: @{bot_info.username}")
-            # Validate mocked data rather than asserting a constant
-            assert bot_info.first_name == "Test Bot"
-            assert bot_info.username == "testbot"
+        # Test the token by getting mocked bot info (handle both sync and async)
+        try:
+            bot_info = await bot.get_me()
+        except TypeError:
+            # If get_me is not awaitable (due to mocking), call it directly
+            bot_info = bot.get_me()
+        print("✅ Bot token test passed!")
+        print(f"   Bot name: {bot_info.first_name}")
+        print(f"   Bot username: @{bot_info.username}")
+        # Validate mocked data rather than asserting a constant
+        assert bot_info.first_name == "Test Bot"
+        assert bot_info.username == "testbot"
 
     except (ValueError, AttributeError, OSError) as e:
         print(f"❌ Invalid Telegram bot token: {e}")
