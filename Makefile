@@ -108,12 +108,12 @@ ruff-fix:
 	ruff check --fix .
 
 bandit:
-	@echo "🔒 Running security analysis with bandit..."
-	bandit -r . -c pyproject.toml
+    @echo "🔒 Running security analysis with bandit..."
+    bandit -r src -c pyproject.toml
 
 vulture:
 	@echo "💀 Running dead code detection with vulture..."
-	vulture . --min-confidence 80
+	vulture src tests --min-confidence 80
 
 format:
 	@echo "🎨 Formatting code with black and ruff..."

@@ -42,10 +42,10 @@ jobs:
         PAPERLESS_AI_TOKEN=mock_ai_token
         EOF
 
-    - name: Lint and format check
+    - name: Run pre-commit hooks
       run: |
-        ruff check .
-        black --check . || true
+        pip install pre-commit==3.5.0
+        pre-commit run --all-files
 
     - name: Run tests with coverage
       run: |
@@ -106,7 +106,8 @@ jobs:
 
     - name: Run security analysis
       run: |
-        bandit -r . -f json -o bandit-report.json || true
+        # Use project config and restrict analysis to application code
+        bandit -c pyproject.toml -r src -f json -o bandit-report.json || true
         pip install --upgrade safety typer || true
         safety check --output json --save-as safety-report.json || true
 

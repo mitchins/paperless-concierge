@@ -21,12 +21,10 @@ from .constants import DEFAULT_SEARCH_RESULTS
 from .document_tracker import DocumentTracker
 from .exceptions import (
     FileDownloadError,
-    FileProcessingError,
     PaperlessAPIError,
     PaperlessTaskNotFoundError,
     PaperlessUploadError,
     TelegramBotError,
-    TempFileError,
 )
 from .paperless_client import PaperlessClient
 from .user_manager import get_user_manager
@@ -295,12 +293,7 @@ class TelegramConcierge:
                 if os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
 
-        except (
-            FileDownloadError,
-            FileProcessingError,
-            TempFileError,
-            TelegramBotError,
-        ) as e:
+        except TelegramBotError as e:
             logger.error(f"Document handling error: {e!s}")
             await message.reply_text(f"❌ Error processing file: {e!s}")
         except Exception as e:

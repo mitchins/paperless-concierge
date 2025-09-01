@@ -11,32 +11,28 @@ repos:
       - id: debug-statements
       - id: check-ast
 
-  - repo: https://github.com/psf/black
-    rev: 23.11.0
-    hooks:
-      - id: black
-        language_version: python3
-
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.1.6
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
 
-  - repo: local
+  - repo: https://github.com/psf/black
+    rev: 23.11.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
     hooks:
       - id: bandit
-        name: bandit
-        entry: bandit
-        language: system
-        types: [python]
-        args: [-c, pyproject.toml, -r, .]
+        args: ["-c", "pyproject.toml", "-r", "src"]
+        pass_filenames: false
 
-  - repo: local
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.10
     hooks:
       - id: vulture
-        name: vulture
-        entry: vulture
-        language: system
-        types: [python]
-        args: [--min-confidence, "80"]
+        args: ["src", "tests", "--min-confidence", "80"]
+        pass_filenames: false
