@@ -30,3 +30,5 @@ coverage.xml
 bandit-report.json
 htmlcov/
 safety-report.json
+src/paperless_concierge/_version.py
+src/paperless_ngx_telegram_concierge.egg-info/
