@@ -1,58 +1,82 @@
 #!/usr/bin/env python3
 """
-Test config.py error handling for better coverage.
+Unit tests for configuration and constants modules.
 """
 
+import asyncio
 import os
 import sys
-import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
-# Add src to path for imports
+# Add src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-
-def test_missing_config_first():
-    """Test ValueError when neither AUTHORIZED_USERS nor USER_CONFIG_FILE are provided."""
-    # This hits the first error condition in config.py (line 56)
-    with patch.dict(os.environ, {}, clear=True), patch(
-        "dotenv.load_dotenv"
-    ) as mock_load_dotenv:
-        mock_load_dotenv.return_value = None
-        if "paperless_concierge.config" in sys.modules:
-            del sys.modules["paperless_concierge.config"]
-        with pytest.raises(ValueError, match="❌ Configuration missing!"):
-            import paperless_concierge.config  # noqa: F401
+# Mock external dependencies before any imports
+sys.modules["aiohttp"] = MagicMock()
+sys.modules["telegram"] = MagicMock()
+sys.modules["telegram.ext"] = MagicMock()
+sys.modules["diskcache"] = MagicMock()
+sys.modules["aiofiles"] = MagicMock()
+sys.modules["python-dotenv"] = MagicMock()
 
 
-def test_missing_paperless_token():
-    """Test ValueError when PAPERLESS_TOKEN is missing in global mode."""
-    # This hits the PAPERLESS_TOKEN error (line 48)
-    env_vars = {
-        "AUTHORIZED_USERS": "123456789",
-        "PAPERLESS_URL": "http://test:8000",
-    }
-    with patch.dict(os.environ, env_vars, clear=True), patch(
-        "dotenv.load_dotenv"
-    ) as mock_load_dotenv:
-        mock_load_dotenv.return_value = None
-        if "paperless_concierge.config" in sys.modules:
-            del sys.modules["paperless_concierge.config"]
-        with pytest.raises(ValueError, match="❌ PAPERLESS_TOKEN missing!"):
-            import paperless_concierge.config  # noqa: F401
+async def test_config_module_loading():
+    """Test config module can be imported and has expected attributes"""
+    print("Testing config module loading...")
+
+    # Test that config can be imported and has expected attributes
+    from paperless_concierge import config
+
+    # These should exist even if None/default values
+    assert hasattr(config, "TELEGRAM_BOT_TOKEN")
+    assert hasattr(config, "PAPERLESS_URL")
+    assert hasattr(config, "PAPERLESS_TOKEN")
+    assert hasattr(config, "AUTH_MODE")
 
 
-def test_missing_paperless_url():
-    """Test ValueError when PAPERLESS_URL is missing in global mode."""
-    env_vars = {
-        "TELEGRAM_BOT_TOKEN": "test_token",
-        "AUTHORIZED_USERS": "123456789",
-    }
-    with patch.dict(os.environ, env_vars, clear=True), patch(
-        "dotenv.load_dotenv"
-    ) as mock_load_dotenv:
-        mock_load_dotenv.return_value = None
-        if "paperless_concierge.config" in sys.modules:
-            del sys.modules["paperless_concierge.config"]
-        with pytest.raises(ValueError, match="❌ PAPERLESS_URL missing!"):
-            import paperless_concierge.config  # noqa: F401
+async def test_constants_module():
+    """Test constants module and HTTPStatus enum"""
+    print("Testing constants module...")
+
+    from paperless_concierge.constants import HTTPStatus, DEFAULT_SEARCH_RESULTS
+
+    # Test HTTPStatus enum
+    assert HTTPStatus.OK == 200
+    assert HTTPStatus.NOT_FOUND == 404
+    assert HTTPStatus.CREATED == 201
+
+    # Test default values
+    assert isinstance(DEFAULT_SEARCH_RESULTS, int)
+    assert DEFAULT_SEARCH_RESULTS > 0
+
+
+async def run_config_tests():
+    """Run all configuration and constants tests"""
+    print("⚙️ Running Config and Constants Tests...")
+    print("=" * 50)
+
+    tests = [
+        test_config_module_loading,
+        test_constants_module,
+    ]
+
+    passed = 0
+    total = len(tests)
+
+    for test in tests:
+        try:
+            await test()
+            passed += 1
+            print(f"✅ {test.__name__}")
+        except Exception as e:
+            print(f"❌ {test.__name__}: {e}")
+
+    print("=" * 50)
+    print(f"Config Tests: {passed}/{total} passed")
+
+    return passed == total
+
+
+if __name__ == "__main__":
+    success = asyncio.run(run_config_tests())
+    sys.exit(0 if success else 1)

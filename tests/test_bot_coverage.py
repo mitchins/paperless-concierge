@@ -7,7 +7,6 @@ Uses extensive mocking to test bot logic and handlers.
 import asyncio
 import os
 import sys
-import tempfile
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from dataclasses import dataclass
 
@@ -55,7 +54,7 @@ class MockMessage:
     def chat_id(self):
         return self.chat.id
 
-    async def reply_text(self, _text, reply_markup=None):
+    async def reply_text(self, _text, _reply_markup=None):
         return Mock(edit_text=AsyncMock())
 
 
@@ -380,6 +379,29 @@ async def run_coverage_tests():
     print("🧪 Running Bot Coverage Tests...")
     print("=" * 50)
 
+    # Add the new utility tests here
+    async def test_bot_utility_methods():
+        """Test bot utility and helper methods"""
+        print("Testing bot utility methods...")
+
+        with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+            mock_user_manager = Mock()
+            mock_user_manager.is_authorized.return_value = True
+            mock_get_user_manager.return_value = mock_user_manager
+
+            from paperless_concierge.bot import TelegramConcierge
+
+            bot = TelegramConcierge()
+
+            # Test init properties
+            assert hasattr(bot, "upload_tasks")
+            assert isinstance(bot.upload_tasks, dict)
+
+            # Test message formatting utility
+            test_results = {"count": 0, "results": []}
+            formatted = bot._format_search_results(test_results)
+            assert "Found 0 documents" in formatted
+
     tests = [
         test_require_authorization_decorator,
         test_telegram_concierge_init,
@@ -390,6 +412,7 @@ async def run_coverage_tests():
         test_query_documents,
         test_check_status,
         test_error_handling,
+        test_bot_utility_methods,
     ]
 
     passed = 0
