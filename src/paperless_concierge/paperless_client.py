@@ -33,6 +33,15 @@ class PaperlessClient:
             "Content-Type": "application/json",
         }
 
+    def _create_session(self) -> aiohttp.ClientSession:
+        """Create an aiohttp session that force-closes sockets to avoid leaks in tests.
+
+        Using force_close ensures connections aren't kept alive across tests, which
+        prevents ResourceWarning: unclosed socket when running with -W error.
+        """
+        connector = aiohttp.TCPConnector(force_close=True)
+        return aiohttp.ClientSession(connector=connector)
+
     async def upload_document(
         self,
         file_path: str,
@@ -62,7 +71,7 @@ class PaperlessClient:
 
         headers = {"Authorization": f"Token {self.token}"}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             try:
                 async with session.post(url, data=data, headers=headers) as response:
                     if response.status == HTTPStatus.OK:
@@ -86,7 +95,7 @@ class PaperlessClient:
         """Check the status of a document processing task"""
         url = f"{self.base_url}/api/tasks/{task_id}/"
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             async with session.get(url, headers=self.headers) as response:
                 if response.status == HTTPStatus.OK:
                     status_result = await response.json()
@@ -134,7 +143,7 @@ class PaperlessClient:
 
         headers = {"x-api-key": self.ai_token, "Content-Type": "application/json"}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             for endpoint in scan_endpoints:
                 try:
                     # Try POST first
@@ -174,7 +183,7 @@ class PaperlessClient:
 
         headers = {"x-api-key": self.ai_token, "Content-Type": "application/json"}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             try:
                 # Use the exact endpoint from your curl command
                 async with session.post(scan_endpoint, headers=headers) as response:
@@ -277,7 +286,7 @@ class PaperlessClient:
             {"id": document_id},
         ]
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             for endpoint in possible_endpoints:
                 for payload in payloads:
                     try:
@@ -405,7 +414,7 @@ class PaperlessClient:
         url = f"{self.base_url}/api/documents/"
         params = {"query": query}
 
-        async with aiohttp.ClientSession() as session:
+        async with self._create_session() as session:
             async with session.get(
                 url, headers=self.headers, params=params
             ) as response:
