@@ -222,11 +222,9 @@ class TelegramConcierge:
             file = await file_obj.get_file()
 
             # Create temporary file
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=f"_{original_filename}"
-            ) as temp_file:
-                await file.download_to_drive(temp_file.name)
-                temp_file_path = temp_file.name
+            temp_fd, temp_file_path = tempfile.mkstemp(suffix=f"_{original_filename}")
+            os.close(temp_fd)  # Close the file descriptor, we only need the path
+            await file.download_to_drive(temp_file_path)
 
             # Upload to Paperless-NGX using user-specific client
             try:
