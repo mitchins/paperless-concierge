@@ -18,6 +18,15 @@ from telegram.ext import (
 from .config import TELEGRAM_BOT_TOKEN
 from .constants import DEFAULT_SEARCH_RESULTS
 from .document_tracker import DocumentTracker
+from .exceptions import (
+    FileDownloadError,
+    FileProcessingError,
+    PaperlessAPIError,
+    PaperlessTaskNotFoundError,
+    PaperlessUploadError,
+    TelegramBotError,
+    TempFileError,
+)
 from .paperless_client import PaperlessClient
 from .user_manager import get_user_manager
 
@@ -219,7 +228,10 @@ class TelegramConcierge:
             status_message = await message.reply_text("📤 Uploading to Paperless-NGX...")
 
             # Download the file
-            file = await file_obj.get_file()
+            try:
+                file = await file_obj.get_file()
+            except Exception as e:
+                raise FileDownloadError(f"Failed to download file from Telegram: {e}")
 
             # Create temporary file
             temp_fd, temp_file_path = tempfile.mkstemp(suffix=f"_{original_filename}")
@@ -244,7 +256,12 @@ class TelegramConcierge:
                             task_id
                         )
                         logger.info(f"🔍 Immediate task status: {immediate_status}")
-                    except (aiohttp.ClientError, ValueError, KeyError) as e:
+                    except (
+                        PaperlessTaskNotFoundError,
+                        PaperlessAPIError,
+                        aiohttp.ClientError,
+                    ) as e:
+                        # Log warning but don't fail - task might not be ready yet
                         logger.warning(f"Could not get immediate task status: {e}")
                         immediate_status = None
 
@@ -263,7 +280,12 @@ class TelegramConcierge:
                         f"✅ {original_filename} uploaded successfully!"
                     )
 
-            except (aiohttp.ClientError, OSError, ValueError, KeyError) as e:
+            except (
+                PaperlessUploadError,
+                PaperlessAPIError,
+                aiohttp.ClientError,
+                OSError,
+            ) as e:
                 logger.error(f"Upload error: {e!s}")
                 await status_message.edit_text(f"❌ Upload failed: {e!s}")
 
@@ -272,9 +294,20 @@ class TelegramConcierge:
                 if os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
 
-        except (OSError, ValueError, KeyError, AttributeError) as e:
+        except (
+            FileDownloadError,
+            FileProcessingError,
+            TempFileError,
+            TelegramBotError,
+        ) as e:
             logger.error(f"Document handling error: {e!s}")
             await message.reply_text(f"❌ Error processing file: {e!s}")
+        except Exception as e:
+            # Catch any unexpected errors
+            logger.error(f"Unexpected error in document handling: {e!s}")
+            await message.reply_text(
+                "❌ An unexpected error occurred. Please try again."
+            )
 
     @require_authorization
     async def check_status(
@@ -293,16 +326,19 @@ class TelegramConcierge:
 
                 try:
                     status = await paperless_client.get_document_status(task_id)
-                except (aiohttp.ClientError, ValueError, KeyError) as task_error:
-                    # Task might be completed and cleaned up, try to find the document
-                    if "Not found" in str(task_error):
-                        await query.edit_message_text(
-                            "✅ Task completed! Document should be processed.\n"
-                            "🔍 Try searching for your document in Paperless-NGX or use /query to find it."
-                        )
-                        return
-                    else:
-                        raise task_error
+                except PaperlessTaskNotFoundError:
+                    # Task not found means it was completed and cleaned up
+                    await query.edit_message_text(
+                        "✅ Task completed! Document should be processed.\n"
+                        "🔍 Try searching for your document in Paperless-NGX or use /query to find it."
+                    )
+                    return
+                except (PaperlessAPIError, aiohttp.ClientError) as task_error:
+                    # Other API errors should be reported
+                    await query.edit_message_text(
+                        f"❌ Error checking status: {task_error}"
+                    )
+                    return
 
                 if status.get("status") == "SUCCESS":
                     await query.edit_message_text(

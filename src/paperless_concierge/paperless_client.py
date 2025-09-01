@@ -7,6 +7,11 @@ import aiohttp
 
 from .config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
 from .constants import HTTPStatus
+from .exceptions import (
+    PaperlessAPIError,
+    PaperlessTaskNotFoundError,
+    PaperlessUploadError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +77,7 @@ class PaperlessClient:
                         logger.error(
                             f"Upload failed with status {response.status}: {error_text}"
                         )
-                        raise Exception(f"Upload failed: {error_text}")
+                        raise PaperlessUploadError(f"Upload failed: {error_text}")
             except Exception as e:
                 logger.error(f"Error uploading document: {e!s}")
                 raise
@@ -91,9 +96,15 @@ class PaperlessClient:
                     )
                     return status_result
                 else:
-                    raise Exception(
-                        f"Failed to get task status: {await response.text()}"
-                    )
+                    if response.status == HTTPStatus.NOT_FOUND:
+                        raise PaperlessTaskNotFoundError(
+                            f"Task not found: {await response.text()}"
+                        )
+                    else:
+                        raise PaperlessAPIError(
+                            f"Failed to get task status: {await response.text()}",
+                            status_code=response.status,
+                        )
 
     async def trigger_ai_processing(self, document_id: int) -> bool:
         """Trigger Paperless-AI to process documents (may process all unprocessed)"""
@@ -401,7 +412,10 @@ class PaperlessClient:
                 if response.status == HTTPStatus.OK:
                     return await response.json()
                 else:
-                    raise Exception(f"Search failed: {await response.text()}")
+                    raise PaperlessAPIError(
+                        f"Search failed: {await response.text()}",
+                        status_code=response.status,
+                    )
 
     async def query_ai(self, query: str) -> Dict[str, Any]:
         """Query Paperless-AI for intelligent document search with structured response"""
