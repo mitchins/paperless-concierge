@@ -26,10 +26,6 @@ flowchart TD
     F --> D
     G --> D
 
-    style A fill:#e1f5fe
-    style H fill:#e8f5e8
-    style I fill:#ffebee
-    style K fill:#f3e5f5
 ```
 
 ## Setup
