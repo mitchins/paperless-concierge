@@ -54,7 +54,7 @@ jobs:
         pytest tests/ --cov=. --cov-report=xml --cov-report=term --cov-report=html -v
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@8f6ec407a34d5ec2b33d7d8f7f50279493b5efb4  # v5.5.0
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
@@ -114,7 +114,7 @@ jobs:
         safety check --output json --save-as safety-report.json || true
 
     - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v5
+      uses: SonarSource/sonarqube-scan-action@1a6d90ebcb0e6a6b1d87e37ba693fe453195ae25  # v5.3.1
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
