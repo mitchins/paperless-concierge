@@ -10,6 +10,7 @@ import sys
 import tempfile
 from unittest.mock import AsyncMock, Mock, patch
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
@@ -96,6 +97,28 @@ class MockFile:
         # Create a dummy file
         with open(path, "wb") as f:
             f.write(b"fake image data")
+
+
+async def test_format_helpers():
+    """Exercise formatting helpers for AI and search responses"""
+    from paperless_concierge.bot import TelegramConcierge
+
+    bot = TelegramConcierge()
+
+    ai_response = {
+        "success": True,
+        "answer": "Here is your answer",
+        "documents_found": [{"title": "Doc1"}, {"title": "Doc2"}],
+        "tags_found": ["tag1", "tag2"],
+        "confidence": 0.9,
+        "sources": [1, 2, 3],
+    }
+    txt = bot._format_ai_response(ai_response)
+    assert "AI Assistant" in txt and "Confidence" in txt and "Sources" in txt
+
+    results = {"count": 2, "results": [{"title": "A"}, {"title": "B"}]}
+    s = bot._format_search_results(results)
+    assert "Found 2 documents" in s
 
 
 async def test_require_authorization_decorator():
@@ -285,6 +308,51 @@ async def test_handle_document_photo():
             assert bot.upload_tasks[12345]["task_id"] == "task-123"
 
 
+async def test_handle_document_document_file_uploaded_success():
+    """Test document upload branch where no task_id is returned"""
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_config = Mock()
+        mock_user_config.paperless_url = "http://test:8000"
+        mock_user_config.paperless_token = "test_token"
+
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_user_manager.get_user_config.return_value = mock_user_config
+        mock_get_user_manager.return_value = mock_user_manager
+
+        from paperless_concierge.bot import TelegramConcierge
+
+        bot = TelegramConcierge()
+
+        # Document message (not photo)
+        file_obj = Mock()
+        file_obj.file_name = "doc.pdf"
+        file_obj.get_file = AsyncMock(return_value=MockFile())
+
+        update = MockUpdate()
+        update.message.document = file_obj
+        update.message.photo = None
+
+        context = Mock()
+
+        # Mock reply_text to return a mock message with edit_text method
+        mock_status_message = Mock()
+        mock_status_message.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=mock_status_message)
+
+        # Mock the paperless client to return no task id
+        client = Mock()
+        client.upload_document = AsyncMock(return_value={})
+
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.handle_document(update, context)
+
+            # The status message should have been edited to success without task tracking
+            assert mock_status_message.edit_text.called
+            message_text = mock_status_message.edit_text.call_args[0][0]
+            assert "uploaded successfully" in message_text.lower()
+
+
 async def test_query_documents():
     """Test document query functionality"""
     print("Testing document query...")
@@ -328,6 +396,46 @@ async def test_query_documents():
 
             # Verify search was performed
             update.message.reply_text.assert_called()
+
+
+async def test_query_documents_ai_success():
+    """Test AI success path with formatted response"""
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_config = Mock()
+        mock_user_config.paperless_url = "http://test:8000"
+        mock_user_config.paperless_token = "test_token"
+        mock_user_config.paperless_ai_url = "http://test-ai:8080"
+        mock_user_config.paperless_ai_token = "test_ai_token"
+
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_user_manager.get_user_config.return_value = mock_user_config
+        mock_get_user_manager.return_value = mock_user_manager
+
+        from paperless_concierge.bot import TelegramConcierge
+
+        bot = TelegramConcierge()
+
+        update = MockUpdate()
+        context = Mock()
+        context.args = ["test", "query"]
+        update.message.reply_text = AsyncMock(return_value=Mock(edit_text=AsyncMock()))
+
+        client = Mock()
+        client.ask_ai_question = AsyncMock(
+            return_value={
+                "success": True,
+                "answer": "Answer",
+                "documents_found": [{"title": "A"}],
+                "tags_found": ["t1"],
+                "confidence": 0.8,
+                "sources": [1],
+            }
+        )
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.query_documents(update, context)
+            args = update.message.reply_text.return_value.edit_text.await_args()
+            assert "AI Assistant" in args.args[0]
 
 
 async def test_check_status():
@@ -377,6 +485,52 @@ async def test_check_status():
             assert "successfully" in call_args
 
 
+async def test_check_status_failure_and_processing():
+    """Test status check FAILURE and processing paths"""
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_config = Mock()
+        mock_user_config.paperless_url = "http://test:8000"
+        mock_user_config.paperless_token = "test_token"
+
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_user_manager.get_user_config.return_value = mock_user_config
+        mock_get_user_manager.return_value = mock_user_manager
+
+        from paperless_concierge.bot import TelegramConcierge
+
+        bot = TelegramConcierge()
+
+        # Mock callback query
+        mock_query = Mock()
+        mock_query.answer = AsyncMock()
+        mock_query.data = "status_task-xyz"
+        mock_query.from_user = SimpleNamespace(id=12345)
+        mock_query.edit_message_text = AsyncMock()
+
+        update = MockUpdate()
+        update.callback_query = mock_query
+        context = Mock()
+
+        # FAILURE path
+        client = Mock()
+        client.get_document_status = AsyncMock(
+            return_value={"status": "FAILURE", "result": "Boom"}
+        )
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.check_status(update, context)
+            msg = mock_query.edit_message_text.call_args[0][0]
+            assert "failed" in msg.lower()
+
+        # PROCESSING path
+        mock_query.edit_message_text.reset_mock()
+        client.get_document_status = AsyncMock(return_value={"status": "PENDING"})
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.check_status(update, context)
+            msg = mock_query.edit_message_text.call_args[0][0]
+            assert "processing" in msg.lower()
+
+
 async def test_error_handling():
     """Test error handling in bot - specifically when file download fails"""
     print("Testing error handling...")
@@ -420,6 +574,28 @@ async def test_error_handling():
         assert error_message_sent, "Error message should be sent to user"
 
 
+async def test_handle_document_unsupported_type():
+    """If neither photo nor document is present, an error is sent"""
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_get_user_manager.return_value = mock_user_manager
+
+        from paperless_concierge.bot import TelegramConcierge
+
+        bot = TelegramConcierge()
+
+        update = MockUpdate()
+        update.message.photo = None
+        update.message.document = None
+        update.message.reply_text = AsyncMock()
+        context = Mock()
+
+        await bot.handle_document(update, context)
+        update.message.reply_text.assert_called_once()
+        assert "unsupported" in update.message.reply_text.call_args[0][0].lower()
+
+
 async def test_bot_utility_methods():
     """Test bot utility and helper methods"""
     print("Testing bot utility methods...")
@@ -439,8 +615,48 @@ async def test_bot_utility_methods():
 
         # Test message formatting utility
         test_results = {"count": 0, "results": []}
-        formatted = bot._format_search_results(test_results)
-        assert "Found 0 documents" in formatted
+    formatted = bot._format_search_results(test_results)
+    assert "Found 0 documents" in formatted
+
+
+async def test_extract_task_id_variants_and_immediate_status_failure():
+    """Cover extract_task_id variants and immediate status failure branch"""
+    from paperless_concierge.bot import TelegramConcierge
+    from paperless_concierge.exceptions import PaperlessTaskNotFoundError
+
+    bot = TelegramConcierge()
+    assert bot._extract_task_id("abc") == "abc"
+    assert bot._extract_task_id({"task_id": "123"}) == "123"
+    assert bot._extract_task_id({}) is None
+
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_config = Mock()
+        mock_user_config.paperless_url = "http://test:8000"
+        mock_user_config.paperless_token = "test_token"
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_user_manager.get_user_config.return_value = mock_user_config
+        mock_get_user_manager.return_value = mock_user_manager
+
+        # Photo message path with immediate status failure
+        bot = TelegramConcierge()
+        photo = Mock()
+        photo.get_file = AsyncMock(return_value=MockFile())
+        update = MockUpdate()
+        update.message.photo = [photo]
+        update.message.reply_text = AsyncMock(return_value=Mock(edit_text=AsyncMock()))
+        context = Mock()
+
+        client = Mock()
+        client.upload_document = AsyncMock(return_value="task-1")
+        client.get_document_status = AsyncMock(
+            side_effect=PaperlessTaskNotFoundError("nf")
+        )
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.handle_document(update, context)
+            data = bot.upload_tasks.get(update.message.from_user.id)
+            assert data is not None
+            assert data.get("immediate_status") is None
 
 
 async def test_main_function():
