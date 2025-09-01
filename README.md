@@ -89,7 +89,7 @@ If you see errors like "async def functions are not natively supported":
 
 1. **Verify test environment**:
    ```bash
-   python verify_tests.py
+   python tests/verify_tests.py
    # or
    make test-verify
    ```

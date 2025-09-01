@@ -49,7 +49,7 @@ test:
 
 test-verify:
 	@echo "🔍 Verifying async test environment..."
-	python verify_tests.py
+	python tests/verify_tests.py
 
 test-unit:
 	@echo "🧪 Running unit tests..."
