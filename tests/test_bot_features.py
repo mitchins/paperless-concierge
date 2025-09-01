@@ -438,6 +438,48 @@ async def test_query_documents_ai_success():
             assert "AI Assistant" in call.args[0]
 
 
+async def test_query_documents_ai_unavailable_no_results():
+    """When AI is unavailable and search has no results, show no-docs message"""
+    with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
+        mock_user_config = Mock()
+        mock_user_config.paperless_url = "http://test:8000"
+        mock_user_config.paperless_token = "test_token"
+        mock_user_config.paperless_ai_url = "http://test-ai:8080"
+        mock_user_config.paperless_ai_token = "test_ai_token"
+
+        mock_user_manager = Mock()
+        mock_user_manager.is_authorized.return_value = True
+        mock_user_manager.get_user_config.return_value = mock_user_config
+        mock_get_user_manager.return_value = mock_user_manager
+
+        from paperless_concierge.bot import TelegramConcierge
+
+        bot = TelegramConcierge()
+
+        update = MockUpdate()
+        context = Mock()
+        context.args = ["find", "nothing"]
+        # status message mock
+        status_msg = Mock(edit_text=AsyncMock())
+        update.message.reply_text = AsyncMock(return_value=status_msg)
+
+        client = Mock()
+        client.query_ai = AsyncMock(
+            return_value={
+                "success": False,
+                "error": "AI service temporarily unavailable",
+            }
+        )
+        client.search_documents = AsyncMock(return_value={"count": 0, "results": []})
+
+        with patch.object(bot, "get_paperless_client", return_value=client):
+            await bot.query_documents(update, context)
+
+            # Ensure we informed user about no documents found after fallback search
+            call = status_msg.edit_text.await_args
+            assert "no documents found" in call.args[0].lower()
+
+
 async def test_check_status():
     """Test status check functionality"""
     print("Testing status check...")
