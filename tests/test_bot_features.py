@@ -709,15 +709,13 @@ async def test_main_function():
     from paperless_concierge.bot import main
     from paperless_concierge.config import TELEGRAM_BOT_TOKEN
 
-    # Mock the Application and related components
+    # Mock the Application and related components so main() returns immediately
     mock_application = Mock()
-    mock_application.builder.return_value.token.return_value.build.return_value = (
-        mock_application
-    )
-    mock_application.run_polling = Mock()
+    mock_application.run_polling = Mock(return_value=None)
     mock_application.add_handler = Mock()
 
     with patch("paperless_concierge.bot.Application") as mock_app_class:
+        # Ensure builder().token().build() returns our mock application
         mock_app_class.builder.return_value.token.return_value.build.return_value = (
             mock_application
         )
@@ -739,27 +737,14 @@ async def test_main_function():
                 mock_concierge.check_status = Mock()
                 mock_concierge_class.return_value = mock_concierge
 
-                # Test that main tries to configure the application
-                try:
-                    # This would normally run forever, so we'll just test the setup
-                    import threading
+                # Call main with clean argv; run_polling is a no-op so it returns
+                with patch.object(sys, "argv", ["paperless-concierge"]):
+                    main()
 
-                    def run_main():
-                        main()
-
-                    # Start main in thread and quickly stop it
-                    thread = threading.Thread(target=run_main, daemon=True)
-                    thread.start()
-                    thread.join(timeout=0.1)  # Very short timeout
-
-                    # Verify setup was called
-                    mock_app_class.builder.assert_called_once()
-                    mock_tracker_class.assert_called_once()
-                    mock_concierge_class.assert_called_once()
-
-                except Exception:
-                    # Expected to fail due to mocking, but we tested the setup path
-                    pass
+                # Verify setup was performed
+                mock_app_class.builder.assert_called_once()
+                mock_tracker_class.assert_called_once()
+                mock_concierge_class.assert_called_once()
 
 
 async def test_ai_error_fallback():

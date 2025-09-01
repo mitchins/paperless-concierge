@@ -106,7 +106,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers -W error"
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow",
