@@ -86,36 +86,9 @@ make dev          # Development mode
 
 ## Troubleshooting
 
-### Async Test Failures
+For full testing and async troubleshooting guidance, see:
 
-If you see errors like "async def functions are not natively supported":
-
-1. **Verify test environment**:
-   ```bash
-   python tests/verify_tests.py
-   # or
-   make test-verify
-   ```
-
-2. **Ensure pytest-asyncio is installed**:
-   ```bash
-   pip install pytest-asyncio
-   ```
-
-3. **Check configuration**: The `pyproject.toml` should have:
-   ```toml
-   [tool.pytest.ini_options]
-   asyncio_mode = "auto"
-   ```
-
-4. **Remove conflicts**: Delete `pytest.ini` if it exists (conflicts with `pyproject.toml`)
-
-5. **Run tests properly**:
-   ```bash
-   pytest tests/ -v
-   # or
-   make test
-   ```
+- docs/TESTING.md — Testing & Troubleshooting (async, config, common fixes)
 
 ## Requirements
 
