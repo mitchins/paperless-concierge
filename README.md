@@ -9,6 +9,29 @@ A Telegram bot for uploading documents and querying your Paperless-NGX instance 
 - Phone camera and share sheet integration
 - Multi-user support with per-user configurations
 
+## How It Works
+
+```mermaid
+flowchart TD
+    A[📱 Send photo/document to bot] --> B[🔐 Authorization check]
+    B --> C[📤 Upload to Paperless-NGX]
+    C --> D[⏱️ Real-time status tracking]
+    D --> E{📊 Processing status?}
+    E -->|Queued| F[⏳ Waiting for processing...]
+    E -->|Processing| G[🔄 Document being processed...]
+    E -->|Completed| H[✅ Success! Document indexed]
+    E -->|Failed| I[❌ Upload failed]
+    H --> J[🤖 Optional AI processing]
+    J --> K[🏷️ Smart tags & metadata added]
+    F --> D
+    G --> D
+
+    style A fill:#e1f5fe
+    style H fill:#e8f5e8
+    style I fill:#ffebee
+    style K fill:#f3e5f5
+```
+
 ## Setup
 
 1. **Quick Setup**:
