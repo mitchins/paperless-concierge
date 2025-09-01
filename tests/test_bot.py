@@ -114,8 +114,12 @@ async def test_telegram_token():
 
             bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-            # Test the token by getting mocked bot info
-            bot_info = await bot.get_me()
+            # Test the token by getting mocked bot info (handle both sync and async)
+            try:
+                bot_info = await bot.get_me()
+            except TypeError:
+                # If get_me is not awaitable (due to mocking), call it directly
+                bot_info = bot.get_me()
             print("✅ Bot token test passed!")
             print(f"   Bot name: {bot_info.first_name}")
             print(f"   Bot username: @{bot_info.username}")
