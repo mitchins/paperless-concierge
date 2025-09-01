@@ -51,6 +51,9 @@ def test_basic_functionality():
         tracker = DocumentTracker(mock_app)
         assert tracker.tracked_documents == {}
 
+        # Clean up tracker resources
+        tracker.cleanup()
+
         print("✅ Basic functionality tests passed")
         return True
 

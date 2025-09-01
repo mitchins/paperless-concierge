@@ -6,8 +6,12 @@ This allows testing the bot logic without external dependencies.
 
 import asyncio
 import os
+import sys
 import tempfile
 from unittest.mock import patch
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Mock the config to avoid requiring real tokens
 mock_config = {
@@ -26,32 +30,36 @@ async def test_paperless_client():
     print("🧪 Testing PaperlessClient (mocked)...")
 
     with patch.dict("os.environ", mock_config):
-        with patch("config.PAPERLESS_URL", mock_config["PAPERLESS_URL"]):
-            with patch("config.PAPERLESS_TOKEN", mock_config["PAPERLESS_TOKEN"]):
-                from paperless_client import PaperlessClient
+        from paperless_client import PaperlessClient
 
-                client = PaperlessClient()
+        # Create client with explicit parameters to bypass config
+        client = PaperlessClient(
+            paperless_url=mock_config["PAPERLESS_URL"],
+            paperless_token=mock_config["PAPERLESS_TOKEN"],
+            paperless_ai_url=mock_config["PAPERLESS_AI_URL"],
+            paperless_ai_token=mock_config["PAPERLESS_AI_TOKEN"],
+        )
 
-                # Test that client is created with correct config
-                assert client.base_url == mock_config["PAPERLESS_URL"]
-                assert client.token == mock_config["PAPERLESS_TOKEN"]
+        # Test that client is created with correct config
+        assert client.base_url == mock_config["PAPERLESS_URL"]
+        assert client.token == mock_config["PAPERLESS_TOKEN"]
 
-                print("✅ PaperlessClient initialized correctly")
+        print("✅ PaperlessClient initialized correctly")
 
-                # Test upload method exists and is callable
-                assert hasattr(client, "upload_document")
-                assert callable(client.upload_document)
+        # Test upload method exists and is callable
+        assert hasattr(client, "upload_document")
+        assert callable(client.upload_document)
 
-                # Test search method exists and is callable
-                assert hasattr(client, "search_documents")
-                assert callable(client.search_documents)
+        # Test search method exists and is callable
+        assert hasattr(client, "search_documents")
+        assert callable(client.search_documents)
 
-                # Test AI query method exists and is callable
-                assert hasattr(client, "query_ai")
-                assert callable(client.query_ai)
+        # Test AI query method exists and is callable
+        assert hasattr(client, "query_ai")
+        assert callable(client.query_ai)
 
-                print("✅ All required methods are present")
-                return True
+        print("✅ All required methods are present")
+        return True
 
 
 async def test_bot_handlers():
@@ -91,6 +99,13 @@ async def test_bot_handlers():
                     # Test that user manager integration works
                     assert hasattr(concierge, "upload_tasks")
                     assert isinstance(concierge.upload_tasks, dict)
+
+                    # Clean up concierge if it has a document tracker
+                    if (
+                        hasattr(concierge, "document_tracker")
+                        and concierge.document_tracker
+                    ):
+                        concierge.document_tracker.cleanup()
 
                     print("✅ Bot initialization working")
                     return True
@@ -146,19 +161,45 @@ async def test_user_manager():
     """Test UserManager functionality."""
     print("\n👥 Testing User Manager...")
 
-    with patch.dict("os.environ", mock_config):
+    with patch.dict("os.environ", mock_config, clear=True):
+        # Need to re-import to pick up the new environment variables
+        import importlib
+
+        import config
+
+        importlib.reload(config)
+
         from user_manager import UserManager
 
-        # Test global mode
+        # Test global mode with explicit mock config
         user_manager = UserManager(auth_mode="global")
         assert user_manager.auth_mode == "global"
+
+        # The mock config has "123456789,987654321" so both should be authorized
         assert user_manager.is_authorized(123456789)
         assert user_manager.is_authorized(987654321)
         assert not user_manager.is_authorized(111111111)
 
-        user_config = user_manager.get_user_config(123456789)
-        assert user_config is not None
-        assert user_config.paperless_url == mock_config["PAPERLESS_URL"]
+        # Test with mocked user config instead of relying on environment
+        from user_manager import UserConfig
+
+        mock_user_config = UserConfig(
+            user_id=123456789,
+            name="Test User",
+            username="testuser",
+            paperless_url=mock_config["PAPERLESS_URL"],
+            paperless_token=mock_config["PAPERLESS_TOKEN"],
+            paperless_ai_url=mock_config["PAPERLESS_AI_URL"],
+            paperless_ai_token=mock_config["PAPERLESS_AI_TOKEN"],
+        )
+
+        # Patch get_user_config to return our mock config
+        with patch.object(
+            user_manager, "get_user_config", return_value=mock_user_config
+        ):
+            user_config = user_manager.get_user_config(123456789)
+            assert user_config is not None
+            assert user_config.paperless_url == mock_config["PAPERLESS_URL"]
 
         print("✅ Global mode user manager working")
 

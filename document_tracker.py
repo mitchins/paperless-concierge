@@ -73,12 +73,6 @@ class DocumentTracker:
             self.background_task = asyncio.create_task(self._tracking_loop())
             logger.info("Document tracking started with clean state")
 
-    async def stop_tracking(self):
-        """Stop the background tracking task"""
-        if self.background_task and not self.background_task.done():
-            self.background_task.cancel()
-            logger.info("Document tracking stopped")
-
     def _save_state(self):
         """Save current tracking state to persistent cache"""
         try:
@@ -784,3 +778,30 @@ class DocumentTracker:
             await self.bot.bot.send_message(chat_id=doc.chat_id, text=message)
         except (AttributeError, ValueError, OSError) as e:
             logger.error(f"Error sending timeout notification: {e!s}")
+
+    async def stop_tracking(self):
+        """Stop the tracking loop and clean up resources"""
+        if self.background_task:
+            self.background_task.cancel()
+            try:
+                await self.background_task
+            except asyncio.CancelledError:
+                pass
+            self.background_task = None
+            logger.info("Document tracking background task stopped")
+
+        # Clean up cache connections
+        self.cleanup()
+
+    def cleanup(self):
+        """Clean up resources including database connections"""
+        try:
+            if hasattr(self, "cache"):
+                self.cache.close()
+                logger.debug("Closed diskcache database connection")
+        except (OSError, ValueError, AttributeError) as e:
+            logger.error(f"Error closing cache: {e}")
+
+    def __del__(self):
+        """Destructor to ensure cleanup when object is garbage collected"""
+        self.cleanup()

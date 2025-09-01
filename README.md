@@ -49,10 +49,44 @@ A Telegram bot for uploading documents and querying your Paperless-NGX instance 
 ## Development
 
 ```bash
-make help    # See all commands
-make test    # Run tests
-make dev     # Development mode
+make help         # See all commands
+make test         # Run tests
+make test-verify  # Verify async test environment
+make dev          # Development mode
 ```
+
+## Troubleshooting
+
+### Async Test Failures
+
+If you see errors like "async def functions are not natively supported":
+
+1. **Verify test environment**:
+   ```bash
+   python verify_tests.py
+   # or
+   make test-verify
+   ```
+
+2. **Ensure pytest-asyncio is installed**:
+   ```bash
+   pip install pytest-asyncio
+   ```
+
+3. **Check configuration**: The `pyproject.toml` should have:
+   ```toml
+   [tool.pytest.ini_options]
+   asyncio_mode = "auto"
+   ```
+
+4. **Remove conflicts**: Delete `pytest.ini` if it exists (conflicts with `pyproject.toml`)
+
+5. **Run tests properly**:
+   ```bash
+   pytest tests/ -v
+   # or
+   make test
+   ```
 
 ## Requirements
 

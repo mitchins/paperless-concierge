@@ -80,8 +80,10 @@ skips = ["B101", "B404", "B603", "B601"]  # Skip assert_used, subprocess imports
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+python_classes = ["Test*"]
+addopts = "-v --tb=short --strict-markers --disable-warnings"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow",
     "integration: marks tests as integration tests",

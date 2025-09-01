@@ -13,6 +13,7 @@ help:
 	@echo ""
 	@echo "🧪 Testing:"
 	@echo "  make test          - Run all tests"
+	@echo "  make test-verify   - Verify async test environment setup"
 	@echo "  make test-unit     - Run unit tests only"
 	@echo "  make test-integration - Run integration tests (requires real tokens)"
 	@echo "  make test-workflow - Run comprehensive workflow tests"
@@ -45,6 +46,10 @@ install:
 test:
 	@echo "🧪 Running all tests..."
 	pytest tests/ -v
+
+test-verify:
+	@echo "🔍 Verifying async test environment..."
+	python verify_tests.py
 
 test-unit:
 	@echo "🧪 Running unit tests..."

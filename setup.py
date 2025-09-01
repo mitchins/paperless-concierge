@@ -80,6 +80,53 @@ def setup_environment_file():
         return False
 
 
+def verify_test_environment():
+    """Verify that the test environment is properly configured."""
+    print("\n🧪 Verifying test environment...")
+
+    if os.name == "nt":  # Windows
+        python_path = os.path.join("venv", "Scripts", "python")
+    else:  # Unix/Linux/macOS
+        python_path = os.path.join("venv", "bin", "python")
+
+    try:
+        # Check if pytest-asyncio is installed
+        result = subprocess.run(
+            [
+                python_path,
+                "-c",
+                "import pytest_asyncio; print('✅ pytest-asyncio is available')",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(result.stdout.strip())
+
+        # Check if pytest configuration is valid
+        result = subprocess.run(
+            [python_path, "-m", "pytest", "--collect-only", "-q"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=".",
+        )
+        print("✅ pytest configuration is valid")
+
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Test environment issue: {e}")
+        print("\n🔧 To fix async test issues:")
+        print("1. Make sure pytest-asyncio is installed:")
+        if os.name == "nt":
+            print("   venv\\Scripts\\pip install pytest-asyncio")
+        else:
+            print("   source venv/bin/activate && pip install pytest-asyncio")
+        print("2. pytest.ini and pyproject.toml should have asyncio_mode = 'auto'")
+        print("3. Run tests with: pytest tests/ -v")
+        return False
+
+
 def print_next_steps():
     """Print setup completion and next steps."""
     print("\n" + "=" * 60)
@@ -94,11 +141,17 @@ def print_next_steps():
     print()
     print("2. Test the configuration:")
     if os.name == "nt":  # Windows
-        print("   venv\\Scripts\\python test_bot.py")
+        print("   venv\\Scripts\\python tests\\test_bot.py")
     else:  # Unix/Linux/macOS
-        print("   source venv/bin/activate && python test_bot.py")
+        print("   source venv/bin/activate && python tests/test_bot.py")
     print()
-    print("3. Run the bot:")
+    print("3. Run the full test suite:")
+    if os.name == "nt":  # Windows
+        print("   venv\\Scripts\\python -m pytest tests/ -v")
+    else:  # Unix/Linux/macOS
+        print("   source venv/bin/activate && pytest tests/ -v")
+    print()
+    print("4. Run the bot:")
     if os.name == "nt":  # Windows
         print("   venv\\Scripts\\python bot.py")
     else:  # Unix/Linux/macOS
@@ -109,6 +162,11 @@ def print_next_steps():
     print("• Send /newbot")
     print("• Choose a name and username for your bot")
     print("• Copy the token to your .env file")
+
+    print("\n🧪 Testing Notes:")
+    print("• Async tests require pytest-asyncio plugin")
+    print("• Configuration is in pyproject.toml with asyncio_mode = 'auto'")
+    print("• If async tests fail, run: pip install pytest-asyncio")
 
 
 def main():
@@ -121,6 +179,7 @@ def main():
         ("Virtual Environment", setup_virtual_environment),
         ("Dependencies", install_dependencies),
         ("Environment File", setup_environment_file),
+        ("Test Environment", verify_test_environment),
     ]
 
     for step_name, step_func in steps:
