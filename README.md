@@ -88,7 +88,7 @@ make dev          # Development mode
 
 For full testing and async troubleshooting guidance, see:
 
-- docs/TESTING.md — Testing & Troubleshooting (async, config, common fixes)
+- [Testing & Troubleshooting](docs/TESTING.md)
 
 ## Requirements
 
