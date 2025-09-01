@@ -517,7 +517,7 @@ For configuration, set environment variables:
     parser.add_argument(
         "--version",
         action="version",
-        version="paperless-concierge (see https://github.com/clusterzx/paperless-ngx-telegram-concierge)",
+        version="paperless-concierge (see https://github.com/mitchins/paperless-ngx-telegram-concierge)",
     )
 
     # Parse arguments - this will handle --help and exit on unknown args
