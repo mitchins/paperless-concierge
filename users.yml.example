@@ -1,0 +1,30 @@
+# User-scoped configuration for Paperless-NGX Telegram Concierge
+# Each user has their own Paperless-NGX and Paperless-AI access
+
+# Mode: 'global' or 'user_scoped'
+# - global: All users share the same Paperless instance (uses .env config)
+# - user_scoped: Each user has their own Paperless configuration (uses this file)
+mode: user_scoped
+
+# User configurations (user_scoped mode only)
+users:
+  123456789:  # Telegram User ID
+    name: "John Doe"
+    username: "@johndoe"  # Optional, for reference
+    paperless:
+      url: "https://paperless.johndoe.com"
+      token: "john_paperless_token_here"
+    paperless_ai:  # Optional
+      url: "https://paperless-ai.johndoe.com"
+      token: "john_ai_token_here"
+  
+  987654321:  # Another user
+    name: "Jane Smith" 
+    username: "@janesmith"
+    paperless:
+      url: "https://paperless.janesmith.com"
+      token: "jane_paperless_token_here"
+    # No paperless_ai configured - will skip AI features
+
+# Global fallback (when mode is 'global' or for undefined users)
+# These values come from .env file and are used as fallback

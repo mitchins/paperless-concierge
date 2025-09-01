@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  telegram-concierge:
+    build: .
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - PAPERLESS_URL=${PAPERLESS_URL:-http://paperless:8000}
+      - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+      - PAPERLESS_AI_URL=${PAPERLESS_AI_URL}
+      - PAPERLESS_AI_TOKEN=${PAPERLESS_AI_TOKEN}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on:
+      - paperless
+    networks:
+      - paperless-network
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    environment:
+      - PAPERLESS_REDIS=redis://redis:6379
+      - PAPERLESS_DBHOST=db
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_DBUSER=paperless
+      - PAPERLESS_DBPASS=paperless
+      - PAPERLESS_SECRET_KEY=change-me
+      - PAPERLESS_URL=http://localhost:8000
+      - PAPERLESS_TIME_ZONE=UTC
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_export:/usr/src/paperless/export
+      - paperless_consume:/usr/src/paperless/consume
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - paperless-network
+
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - POSTGRES_PASSWORD=paperless
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - paperless-network
+
+  redis:
+    image: redis:6
+    networks:
+      - paperless-network
+
+volumes:
+  paperless_data:
+  paperless_media:
+  paperless_export:
+  paperless_consume:
+  postgres_data:
+
+networks:
+  paperless-network:
+    driver: bridge

@@ -116,4 +116,4 @@ The bot is built with:
 
 ## License
 
-MIT License# paperless-concierge
+MIT License
