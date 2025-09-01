@@ -2,9 +2,8 @@
   <h1>Paperless-NGX Telegram Concierge</h1>
   <p><strong>A Telegram bot for uploading documents and querying your Paperless-NGX instance directly from Telegram.</strong></p>
 
-  [![Build](https://github.com/mitchins/paperless-ngx-telegram-concierge/actions/workflows/build.yml/badge.svg?branch=main)](../../actions/workflows/build.yml)
   [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=mitchins_paperless-concierge&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=mitchins_paperless-concierge)
-  [![codecov](https://codecov.io/github/mitchins/paperless-ngx-telegram-concierge/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/github/mitchins/paperless-ngx-telegram-concierge)
+  [![codecov](https://codecov.io/gh/mitchins/paperless-concierge/graph/badge.svg)](https://codecov.io/gh/mitchins/paperless-concierge)
   [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
