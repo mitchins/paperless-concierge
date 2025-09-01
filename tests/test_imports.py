@@ -20,10 +20,10 @@ def test_imports():
         from paperless_concierge import user_manager  # noqa: F401
 
         print("✅ All modules imported successfully")
-        return True
+        assert True
     except ImportError as e:
         print(f"❌ Import error: {e}")
-        return False
+        assert False, f"Import error: {e}"
 
 
 def test_basic_functionality():
@@ -55,11 +55,11 @@ def test_basic_functionality():
         tracker.cleanup()
 
         print("✅ Basic functionality tests passed")
-        return True
+        assert True
 
     except (ValueError, KeyError, AttributeError, OSError, ImportError) as e:
         print(f"❌ Basic functionality test failed: {e}")
-        return False
+        assert False, f"Basic functionality failed: {e}"
 
 
 def test_configuration():
@@ -72,11 +72,11 @@ def test_configuration():
         assert hasattr(config, "PAPERLESS_URL")
 
         print("✅ Configuration tests passed")
-        return True
+        assert True
 
     except (ValueError, KeyError, AttributeError, OSError) as e:
         print(f"❌ Configuration test failed: {e}")
-        return False
+        assert False, f"Configuration failed: {e}"
 
 
 def test_persistent_cache():
@@ -88,7 +88,8 @@ def test_persistent_cache():
         if hasattr(dc, "_mock_name"):
             # If mocked, just verify the module can be imported
             print("✅ Persistent cache tests passed (mocked)")
-            return True
+            assert True
+            return
 
         # Test cache creation and basic operations
         cache = dc.Cache(".test_cache")
@@ -104,11 +105,11 @@ def test_persistent_cache():
             shutil.rmtree(".test_cache")
 
         print("✅ Persistent cache tests passed")
-        return True
+        assert True
 
     except (OSError, ValueError, ImportError) as e:
         print(f"❌ Persistent cache test failed: {e}")
-        return False
+        assert False, f"Persistent cache failed: {e}"
 
 
 if __name__ == "__main__":

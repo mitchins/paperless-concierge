@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import tempfile
@@ -503,6 +504,32 @@ class TelegramConcierge:
 
 def main() -> None:
     """Start the bot."""
+    parser = argparse.ArgumentParser(
+        prog="paperless-concierge",
+        description="Telegram bot for uploading documents and querying your Paperless-NGX instance",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  paperless-concierge                    Start the bot with default settings
+
+For configuration, set environment variables:
+  TELEGRAM_BOT_TOKEN      Your bot token from @BotFather
+  PAPERLESS_URL          URL of your Paperless-NGX instance
+  PAPERLESS_TOKEN        API token for Paperless-NGX
+  AUTH_MODE              Authentication mode (global/user-based)
+  AUTHORIZED_USERS       Comma-separated list of authorized user IDs
+        """.strip(),
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="paperless-concierge (see https://github.com/clusterzx/paperless-ngx-telegram-concierge)",
+    )
+
+    # Parse arguments - this will handle --help and exit on unknown args
+    parser.parse_args()
+
     # Create the Application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 

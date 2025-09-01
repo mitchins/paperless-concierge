@@ -48,17 +48,17 @@ def test_config():
 
         if config_ok:
             print("✅ Configuration looks good!")
-        return config_ok
+        # Ensure pytest sees a proper assertion outcome, not a return value
+        assert config_ok, "Configuration is not valid; see printed errors above"
 
     except (ValueError, KeyError, AttributeError, OSError) as e:
         print(f"❌ Configuration error: {e}")
-        return False
+        assert False, f"Configuration error: {e}"
 
 
 async def test_paperless_connection():
     """Test connection to Paperless-NGX API."""
     from paperless_concierge.config import PAPERLESS_TOKEN, PAPERLESS_URL
-    from paperless_concierge.constants import HTTPStatus
 
     print("\n📡 Testing Paperless-NGX Connection...")
 
@@ -67,18 +67,19 @@ async def test_paperless_connection():
         # Test configuration is present
         if not PAPERLESS_TOKEN or PAPERLESS_TOKEN == "your_paperless_api_token_here":
             print("⚠️  Using placeholder token - configure for production use")
-            return False
+            assert False, "PAPERLESS_TOKEN is placeholder or missing"
 
         # Simulate successful connection (would use aioresponses in full test suite)
         print("✅ Successfully connected to Paperless-NGX!")
         print(f"   Documents in system: 42")
-        return True
+        # No return; assertions above are sufficient
+        assert True
 
     except Exception as e:
         print(f"❌ Failed to connect to Paperless-NGX: {e}")
         print("   This is expected if Paperless-NGX is not running locally.")
         print("   The bot will still work once Paperless-NGX is available.")
-        return False
+        assert False, f"Paperless connection failed: {e}"
 
 
 async def test_telegram_token():
@@ -90,7 +91,7 @@ async def test_telegram_token():
 
     if TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
         print("⚠️  Using placeholder token - please configure a real bot token")
-        return False
+        assert False, "TELEGRAM_BOT_TOKEN is placeholder"
 
     try:
         from telegram import Bot
@@ -113,11 +114,11 @@ async def test_telegram_token():
             print("✅ Bot token test passed!")
             print(f"   Bot name: {bot_info.first_name}")
             print(f"   Bot username: @{bot_info.username}")
-            return True
+            assert True
 
     except (ValueError, AttributeError, OSError) as e:
         print(f"❌ Invalid Telegram bot token: {e}")
-        return False
+        assert False, f"Invalid Telegram bot token: {e}"
 
 
 async def test_imports():
@@ -132,10 +133,10 @@ async def test_imports():
             print(f"✓ {module}")
         except ImportError as e:
             print(f"❌ {module}: {e}")
-            return False
+            assert False, f"Failed to import module: {module} ({e})"
 
     print("✅ All modules imported successfully!")
-    return True
+    assert True
 
 
 async def run_tests():
