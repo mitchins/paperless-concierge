@@ -1,0 +1,29 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+
+  ignore:
+    - "tests/"
+    - "setup.py"
+    - "get_user_id.py"
+    - "verify_tests.py"
+    - "__pycache__"
+    - "*.pyc"
+    - ".pytest_cache"
+    - "venv/"
+    - "htmlcov/"
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+
+github_checks:
+  annotations: true
