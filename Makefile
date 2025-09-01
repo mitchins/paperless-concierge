@@ -65,13 +65,13 @@ test-workflow:
 
 run:
 	@echo "🤖 Starting Paperless-NGX Telegram Concierge..."
-	python bot.py
+	python -m paperless_concierge.bot
 
 dev:
 	@echo "🔧 Starting bot in development mode..."
 	@echo "📝 Press Ctrl+C to stop"
 	@while true; do \
-		python bot.py & \
+		python -m paperless_concierge.bot & \
 		PID=$$!; \
 		inotifywait -e modify -r . --include=".*\.py$$" 2>/dev/null || true; \
 		kill $$PID 2>/dev/null || true; \
@@ -93,7 +93,7 @@ clean-cache:
 # For systems without inotifywait, use basic dev mode
 dev-basic:
 	@echo "🔧 Basic development mode (manual restart required)"
-	python bot.py
+	python -m paperless_concierge.bot
 
 # Code Quality Commands
 lint: ruff bandit vulture
