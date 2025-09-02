@@ -107,6 +107,28 @@ async def test_query_ai_success_parsing(httpx_mock):
     assert parsed["documents_found"][0]["title"] == "D"
 
 
+async def test_query_ai_temporarily_unavailable(httpx_mock):
+    c = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="tkn",
+        paperless_ai_url="http://ai:8080",
+        paperless_ai_token="ai-key",
+    )
+
+    # All endpoints return 404
+    for path in ["/api/chat", "/api/query", "/chat", "/query"]:
+        httpx_mock.add_response(
+            method="POST",
+            url=f"http://ai:8080{path}",
+            status_code=404,
+            json={"error": "not found"},
+        )
+
+    parsed = await c.query_ai("hi")
+    assert parsed["success"] is False
+    assert "temporarily unavailable" in parsed["error"].lower()
+
+
 async def test_trigger_ai_processing_success(httpx_mock):
     c = PaperlessClient(
         paperless_url="http://test:8000",
