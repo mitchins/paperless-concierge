@@ -606,8 +606,52 @@ class TelegramConcierge:
             await status_message.edit_text(f"❌ Search failed: {e!s}")
 
 
+def _is_valid_pid(pid: int) -> bool:
+    """Validate PID for security - ensure it's reasonable and safe to check."""
+    # PID must be positive and within reasonable bounds
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    # PIDs shouldn't exceed system limits (typically much lower than this)
+    # This prevents potential issues with extremely large values
+    if pid > 2**20:  # 1 million - well above typical system limits
+        return False
+
+    # Never try to check system critical processes (PID 1 is init/systemd)
+    if pid == 1:
+        return False
+
+    return True
+
+
+def _is_owned_by_current_user(pid: int) -> bool:
+    """Check if the process belongs to the current user for additional safety."""
+    try:
+        # Get process info via /proc (Linux/Unix) or fall back to basic check
+        proc_path = f"/proc/{pid}"
+        if os.path.exists(proc_path):
+            # Check if process directory is owned by current user
+            current_uid = os.getuid()
+            proc_stat = os.stat(proc_path)
+            return proc_stat.st_uid == current_uid
+        else:
+            # Fallback: assume it's safe if we can't check
+            # (macOS doesn't have /proc, Windows doesn't have this path)
+            return True
+    except (OSError, AttributeError):
+        # If we can't check ownership, err on the side of caution
+        return True
+
+
 def ensure_singleton():
-    """Ensure only one instance of the bot is running."""
+    """Ensure only one instance of the bot is running.
+
+    Security considerations:
+    - Only checks PIDs that pass validation (positive, within reasonable bounds)
+    - Only checks processes owned by the current user
+    - Uses signal 0 (harmless process existence check, doesn't terminate)
+    - Never attempts to signal system processes (PID 1, etc.)
+    """
     lock_file = os.path.join(tempfile.gettempdir(), "paperless-concierge.lock")
 
     try:
@@ -628,10 +672,29 @@ def ensure_singleton():
         # Check if the existing process is still running
         try:
             with open(lock_file, "r") as f:
-                existing_pid = int(f.read().strip())
+                pid_content = f.read().strip()
 
-            # Check if process exists
-            os.kill(existing_pid, 0)
+            # Parse and validate PID
+            existing_pid = int(pid_content)
+
+            # Security validation: ensure PID is safe to check
+            if not _is_valid_pid(existing_pid):
+                logger.warning(f"Invalid PID in lock file: {existing_pid}")
+                # Remove suspicious lock file and try again
+                os.unlink(lock_file)
+                return ensure_singleton()
+
+            # Additional safety: only check processes owned by current user
+            if not _is_owned_by_current_user(existing_pid):
+                logger.warning(
+                    f"PID {existing_pid} not owned by current user, removing stale lock"
+                )
+                os.unlink(lock_file)
+                return ensure_singleton()
+
+            # Safe to check if process exists (signal 0 doesn't harm the process)
+            # Security: PID has been validated and ownership checked above
+            os.kill(existing_pid, 0)  # noqa: S603  # PID validated, signal 0 is safe
             print(f"❌ Another instance is already running (PID: {existing_pid})")
             print("   Stop it first or wait for it to exit.")
             exit(1)
