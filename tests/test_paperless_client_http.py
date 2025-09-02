@@ -169,3 +169,30 @@ async def test_trigger_ai_processing_success(httpx_mock):
 
     ok = await c.trigger_ai_processing(123)
     assert ok is True
+
+
+async def test_trigger_ai_document_processing_fallback(httpx_mock):
+    c = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="t",
+        paperless_ai_url="http://ai:8080",
+        paperless_ai_token="k",
+    )
+
+    # Make scan/now fail so fallback path is exercised
+    httpx_mock.add_response(
+        method="POST",
+        url="http://ai:8080/api/scan/now",
+        status_code=500,
+        json={"error": "fail"},
+    )
+    # Fallback: process specific document via POST /api/process/{id}
+    httpx_mock.add_response(
+        method="POST",
+        url="http://ai:8080/api/process/123",
+        status_code=200,
+        json={"ok": True},
+    )
+
+    ok = await c.trigger_ai_processing(123)
+    assert ok is True
