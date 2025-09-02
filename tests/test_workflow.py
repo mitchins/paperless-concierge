@@ -73,8 +73,12 @@ class MockFile:
             f.write(b"fake image data")
 
 
-# Test the complete document upload workflow
-async def test_document_upload_workflow():
+# Test the complete document upload workflow (HTTP stubbed)
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_document_upload_workflow(httpx_mock):
     """Test complete document upload workflow with mocks"""
 
     from paperless_concierge.bot import TelegramConcierge
@@ -97,48 +101,43 @@ async def test_document_upload_workflow():
         # Create bot instance
         bot = TelegramConcierge(document_tracker=mock_tracker)
 
-        # Mock the paperless client
-        with patch.object(bot, "get_paperless_client") as mock_get_client:
-            mock_client = Mock()
-            mock_client.upload_document = AsyncMock(return_value="task-123")
-            mock_client.get_document_status = AsyncMock(
-                return_value={"status": "completed"}
-            )
-            mock_get_client.return_value = mock_client
+        # Create mock update with photo
+        update = MockUpdate()
+        update.message.photo = [MockFile()]
 
-            # Create mock update with photo
-            update = MockUpdate()
-            update.message.photo = [MockFile()]
+        # Mock context
+        context = Mock()
 
-            # Mock context
-            context = Mock()
+        # Mock message reply methods
+        status_message = Mock()
+        status_message.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=status_message)
 
-            # Mock message reply methods
-            status_message = Mock()
-            status_message.edit_text = AsyncMock()
-            update.message.reply_text = AsyncMock(return_value=status_message)
+        # Stub HTTP upload and immediate status
+        httpx_mock.add_response(
+            method="POST",
+            url="http://test-paperless:8000/api/documents/post_document/",
+            json={"task_id": "task-123"},
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test-paperless:8000/api/tasks/task-123/",
+            json={"status": "completed", "document_id": 1},
+            status_code=200,
+        )
 
-            # Mock file operations
-            with patch("tempfile.NamedTemporaryFile") as mock_temp:
-                mock_temp_file = Mock()
-                mock_temp_file.name = "/tmp/test_file.jpg"
-                mock_temp_file.__enter__ = Mock(return_value=mock_temp_file)
-                mock_temp_file.__exit__ = Mock(return_value=None)
-                mock_temp.return_value = mock_temp_file
+        # Execute the upload
+        await bot.handle_document(update, context)
 
-                with patch("os.path.exists", return_value=True), patch("os.unlink"):
-                    # Execute the upload
-                    await bot.handle_document(update, context)
+        # Verify the workflow
+        assert update.message.reply_text.called
+        assert mock_tracker.add_document.called
+        assert status_message.edit_text.called
 
-                    # Verify the workflow
-                    assert update.message.reply_text.called
-                    assert mock_client.upload_document.called
-                    assert mock_tracker.add_document.called
-                    assert status_message.edit_text.called
-
-                    # Clean up bot document tracker
-                    if hasattr(bot, "document_tracker") and bot.document_tracker:
-                        bot.document_tracker.cleanup()
+        # Clean up tracker
+        if hasattr(bot, "document_tracker") and bot.document_tracker:
+            bot.document_tracker.cleanup()
 
 
 async def test_ai_processing_workflow():

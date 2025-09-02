@@ -127,7 +127,7 @@ async def test_imports():
     """Test that all required modules can be imported."""
     print("\n📦 Testing Module Imports...")
 
-    modules_to_test = ["telegram", "telegram.ext", "aiohttp", "aiofiles", "dotenv"]
+    modules_to_test = ["telegram", "telegram.ext", "httpx", "dotenv"]
 
     for module in modules_to_test:
         try:

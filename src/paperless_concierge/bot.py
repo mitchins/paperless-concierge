@@ -7,7 +7,7 @@ import inspect
 import asyncio
 from typing import Optional
 
-import aiohttp
+import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import (
@@ -75,7 +75,7 @@ class TelegramConcierge:
 
     def get_paperless_client(self, user_id: int) -> PaperlessClient:
         """Get (and cache) a PaperlessClient configured for the specific user.
-        Reuses a single client per user to prevent leaking aiohttp sessions.
+        Reuses a single client per user.
         If the user's config changes, the old client is closed and replaced.
         """
         user_manager = get_user_manager()
@@ -110,7 +110,7 @@ class TelegramConcierge:
                             except RuntimeError:
                                 # No running loop; defer to global shutdown via aclose()
                                 pass
-                    except (aiohttp.ClientError, RuntimeError, OSError) as e:
+                    except (httpx.HTTPError, RuntimeError, OSError) as e:
                         logger.warning(
                             "Failed to close previous PaperlessClient for user %s: %s",
                             user_id,
@@ -130,7 +130,7 @@ class TelegramConcierge:
         return client
 
     async def aclose(self):
-        """Close all cached PaperlessClient instances to avoid socket leaks."""
+        """Close all cached PaperlessClient instances."""
         for client in list(self._clients.values()):
             for closer in ("aclose", "close"):
                 fn = getattr(client, closer, None)
@@ -139,14 +139,12 @@ class TelegramConcierge:
                         res = fn()
                         if inspect.isawaitable(res):
                             await res
-                    except (aiohttp.ClientError, RuntimeError, OSError) as e:
+                    except (httpx.HTTPError, RuntimeError, OSError) as e:
                         logger.debug(
                             "Error while closing PaperlessClient during aclose: %s",
                             e,
                             exc_info=True,
                         )
-        # Allow aiohttp/asyncio to finalize sockets/connectors
-        await asyncio.sleep(0)
         self._clients.clear()
         self._client_keys.clear()
 
@@ -329,7 +327,7 @@ class TelegramConcierge:
                     except (
                         PaperlessTaskNotFoundError,
                         PaperlessAPIError,
-                        aiohttp.ClientError,
+                        httpx.HTTPError,
                     ) as e:
                         # Log warning but don't fail - task might not be ready yet
                         logger.warning(f"Could not get immediate task status: {e}")
@@ -353,7 +351,7 @@ class TelegramConcierge:
             except (
                 PaperlessUploadError,
                 PaperlessAPIError,
-                aiohttp.ClientError,
+                httpx.HTTPError,
                 OSError,
             ) as e:
                 logger.error(f"Upload error: {e!s}")
@@ -362,7 +360,7 @@ class TelegramConcierge:
         except (FileDownloadError, TelegramBotError) as e:
             logger.error(f"Document handling error: {e!s}")
             await message.reply_text(f"❌ Error processing file: {e!s}")
-        except (TelegramError, aiohttp.ClientError, OSError) as e:
+        except (TelegramError, httpx.HTTPError, OSError) as e:
             logger.error(f"Unexpected I/O error in document handling: {e!s}")
             await message.reply_text(
                 "❌ A network or file error occurred. Please try again."
@@ -396,7 +394,7 @@ class TelegramConcierge:
                         "🔍 Try searching for your document in Paperless-NGX or use /query to find it."
                     )
                     return
-                except (PaperlessAPIError, aiohttp.ClientError) as task_error:
+                except (PaperlessAPIError, httpx.HTTPError) as task_error:
                     # Other API errors should be reported
                     await query.edit_message_text(
                         f"❌ Error checking status: {task_error}"
@@ -427,7 +425,7 @@ class TelegramConcierge:
                         reply_markup=reply_markup,
                     )
 
-            except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+            except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
                 logger.error(f"Status check error: {e!s}")
                 await query.edit_message_text(f"❌ Error checking status: {e!s}")
 
@@ -473,7 +471,14 @@ class TelegramConcierge:
             title = doc.get("title", "Untitled")
             created = doc.get("created", "Unknown date")[:10]  # Just the date part
             tags = doc.get("tags", [])
-            tag_text = f" [Tags: {', '.join(tags[:3])}]" if tags else ""
+            # Coerce tags to strings safely (tags may be ints or dicts)
+            tag_labels = []
+            for t in tags[:3]:
+                if isinstance(t, dict):
+                    tag_labels.append(str(t.get("name") or t.get("label") or t))
+                else:
+                    tag_labels.append(str(t))
+            tag_text = f" [Tags: {', '.join(tag_labels)}]" if tag_labels else ""
             response += f"• {title}{tag_text}\n  📅 {created}\n\n"
 
         if search_results["count"] > DEFAULT_SEARCH_RESULTS:
@@ -559,7 +564,7 @@ class TelegramConcierge:
                     ai_response, paperless_client, query_text, status_message
                 )
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Query error: {e!s}")
             await status_message.edit_text(f"❌ Search failed: {e!s}")
         except Exception as e:  # Last-resort guard for unexpected client errors

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""
+HTTP boundary tests for PaperlessClient using pytest-httpx.
+These exercise real httpx.AsyncClient calls with stubbed responses,
+so we validate URLs, headers, and avoid real sockets.
+"""
+
+import os
+import sys
+import json
+import asyncio
+import tempfile
+
+import pytest
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
+
+from paperless_concierge.paperless_client import PaperlessClient
+
+
+pytestmark = pytest.mark.asyncio
+
+
+async def test_upload_document_ok(httpx_mock, tmp_path):
+    client = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="tkn",
+    )
+
+    # Prepare temp file as upload source
+    p = tmp_path / "doc.pdf"
+    p.write_bytes(b"hello")
+
+    # Stub POST endpoint
+    httpx_mock.add_response(
+        method="POST",
+        url="http://test:8000/api/documents/post_document/",
+        json={"task_id": "task-1"},
+        status_code=200,
+    )
+
+    result = await client.upload_document(str(p), title="doc.pdf")
+    assert result.get("task_id") == "task-1"
+
+    # Verify request basics
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "POST"
+    assert req.url == "http://test:8000/api/documents/post_document/"
+    assert req.headers.get("Authorization") == "Token tkn"
+
+
+async def test_get_document_status_ok(httpx_mock):
+    c = PaperlessClient(paperless_url="http://test:8000", paperless_token="tkn")
+
+    httpx_mock.add_response(
+        method="GET",
+        url="http://test:8000/api/tasks/abc-123/",
+        json={"status": "SUCCESS", "document_id": 42},
+        status_code=200,
+    )
+
+    data = await c.get_document_status("abc-123")
+    assert data["status"] == "SUCCESS"
+    assert data["document_id"] == 42
+
+
+async def test_search_documents_ok(httpx_mock):
+    c = PaperlessClient(paperless_url="http://test:8000", paperless_token="tkn")
+
+    httpx_mock.add_response(
+        method="GET",
+        url="http://test:8000/api/documents/?query=invoice",
+        json={"count": 1, "results": [{"id": 1, "title": "T"}]},
+        status_code=200,
+    )
+
+    data = await c.search_documents("invoice")
+    assert data["count"] == 1
+    assert data["results"][0]["title"] == "T"
+
+
+async def test_query_ai_success_parsing(httpx_mock):
+    c = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="tkn",
+        paperless_ai_url="http://ai:8080",
+        paperless_ai_token="ai-key",
+    )
+
+    httpx_mock.add_response(
+        method="POST",
+        url="http://ai:8080/api/chat",
+        json={
+            "answer": "Hello",
+            "sources": [1],
+            "documents": [{"title": "D"}],
+            "tags": ["A"],
+            "confidence": 0.9,
+        },
+        status_code=200,
+    )
+
+    parsed = await c.query_ai("hi")
+    assert parsed["success"] is True
+    assert parsed["answer"] == "Hello"
+    assert parsed["documents_found"][0]["title"] == "D"

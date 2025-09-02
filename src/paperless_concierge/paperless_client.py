@@ -2,8 +2,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-import aiofiles
-import aiohttp
+import httpx
 
 from .config import PAPERLESS_AI_TOKEN, PAPERLESS_AI_URL, PAPERLESS_TOKEN, PAPERLESS_URL
 from .constants import HTTPStatus
@@ -32,29 +31,7 @@ class PaperlessClient:
             "Authorization": f"Token {self.token}",
             "Content-Type": "application/json",
         }
-        # Single reusable session for all HTTP calls (closed by aclose())
-        self.session = None
-
-    async def _ensure_session(self) -> aiohttp.ClientSession:
-        """Lazily create an aiohttp ClientSession in an async context."""
-        if self.session is None or getattr(self.session, "closed", False):
-            self.session = aiohttp.ClientSession()
-        return self.session
-
-    async def aclose(self):
-        """Close underlying HTTP session to release sockets."""
-        session = getattr(self, "session", None)
-        if session is not None and not getattr(session, "closed", False):
-            await session.close()
-
-    def _create_session(self) -> aiohttp.ClientSession:
-        """Create an aiohttp session that force-closes sockets to avoid leaks in tests.
-
-        Using force_close ensures connections aren't kept alive across tests, which
-        prevents ResourceWarning: unclosed socket when running with -W error.
-        """
-        connector = aiohttp.TCPConnector(force_close=True)
-        return aiohttp.ClientSession(connector=connector)
+        # No persistent client: open per-call to avoid leaked sockets in tests/CI
 
     async def upload_document(
         self,
@@ -67,67 +44,63 @@ class PaperlessClient:
         """Upload a document to Paperless-NGX"""
         url = f"{self.base_url}/api/documents/post_document/"
 
-        data = aiohttp.FormData()
+        # Prepare multipart form data
+        filename = file_path.split("/")[-1]
 
-        async with aiofiles.open(file_path, "rb") as f:
-            file_content = await f.read()
-            data.add_field("document", file_content, filename=file_path.split("/")[-1])
+        # Use httpx's preferred file format: (filename, file_content, content_type)
+        with open(file_path, "rb") as f:
+            files = {"document": (filename, f.read(), "application/octet-stream")}
 
+        data = {}
         if title:
-            data.add_field("title", title)
+            data["title"] = title
         if correspondent:
-            data.add_field("correspondent", correspondent)
+            data["correspondent"] = correspondent
         if document_type:
-            data.add_field("document_type", document_type)
+            data["document_type"] = document_type
         if tags:
-            for tag in tags:
-                data.add_field("tags", tag)
+            # httpx handles multiple values for the same key differently
+            data["tags"] = tags
 
         headers = {"Authorization": f"Token {self.token}"}
 
-        session = await self._ensure_session()
-        try:
-            async with session.post(url, data=data, headers=headers) as response:
-                if response.status == HTTPStatus.OK:
-                    result = await response.json()
-                    logger.info(f"🔍 UPLOAD RESPONSE: {result}")
-                    logger.info(f"🔍 UPLOAD RESPONSE TYPE: {type(result)}")
-                    if isinstance(result, dict):
-                        logger.info(f"🔍 UPLOAD KEYS: {list(result.keys())}")
-                    return result
-                else:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Upload failed with status {response.status}: {error_text}"
-                    )
-                    raise PaperlessUploadError(f"Upload failed: {error_text}")
-        except Exception as e:
-            logger.error(f"Error uploading document: {e!s}")
-            raise
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, files=files, data=data, headers=headers)
+            if response.status_code == HTTPStatus.OK:
+                result = response.json()
+                logger.info(f"🔍 UPLOAD RESPONSE: {result}")
+                logger.info(f"🔍 UPLOAD RESPONSE TYPE: {type(result)}")
+                if isinstance(result, dict):
+                    logger.info(f"🔍 UPLOAD KEYS: {list(result.keys())}")
+                return result
+            else:
+                error_text = response.text
+                logger.error(
+                    f"Upload failed with status {response.status_code}: {error_text}"
+                )
+                raise PaperlessUploadError(f"Upload failed: {error_text}")
 
     async def get_document_status(self, task_id: str) -> Dict[str, Any]:
         """Check the status of a document processing task"""
         url = f"{self.base_url}/api/tasks/{task_id}/"
 
-        session = await self._ensure_session()
-        async with session.get(url, headers=self.headers) as response:
-            if response.status == HTTPStatus.OK:
-                status_result = await response.json()
-                logger.info(f"🔍 TASK STATUS RESPONSE: {status_result}")
-                logger.info(
-                    f"🔍 TASK STATUS KEYS: {list(status_result.keys()) if isinstance(status_result, dict) else 'Not a dict'}"
-                )
-                return status_result
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=self.headers)
+        if response.status_code == HTTPStatus.OK:
+            status_result = response.json()
+            logger.info(f"🔍 TASK STATUS RESPONSE: {status_result}")
+            logger.info(
+                f"🔍 TASK STATUS KEYS: {list(status_result.keys()) if isinstance(status_result, dict) else 'Not a dict'}"
+            )
+            return status_result
+        else:
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise PaperlessTaskNotFoundError(f"Task not found: {response.text}")
             else:
-                if response.status == HTTPStatus.NOT_FOUND:
-                    raise PaperlessTaskNotFoundError(
-                        f"Task not found: {await response.text()}"
-                    )
-                else:
-                    raise PaperlessAPIError(
-                        f"Failed to get task status: {await response.text()}",
-                        status_code=response.status,
-                    )
+                raise PaperlessAPIError(
+                    f"Failed to get task status: {response.text}",
+                    status_code=response.status_code,
+                )
 
     async def trigger_ai_processing(self, document_id: int) -> bool:
         """Trigger Paperless-AI to process documents (may process all unprocessed)"""
@@ -157,12 +130,12 @@ class PaperlessClient:
 
         headers = {"x-api-key": self.ai_token, "Content-Type": "application/json"}
 
-        session = await self._ensure_session()
-        for endpoint in scan_endpoints:
-            try:
-                # Try POST first
-                async with session.post(endpoint, headers=headers, json={}) as response:
-                    if response.status in [
+        async with httpx.AsyncClient() as client:
+            for endpoint in scan_endpoints:
+                try:
+                    # Try POST first
+                    response = await client.post(endpoint, headers=headers, json={})
+                    if response.status_code in [
                         HTTPStatus.OK,
                         HTTPStatus.CREATED,
                         HTTPStatus.ACCEPTED,
@@ -170,9 +143,9 @@ class PaperlessClient:
                         logger.info(f"AI scan triggered via POST {endpoint}")
                         return True
 
-                # Try GET
-                async with session.get(endpoint, headers=headers) as response:
-                    if response.status in [
+                    # Try GET
+                    response = await client.get(endpoint, headers=headers)
+                    if response.status_code in [
                         HTTPStatus.OK,
                         HTTPStatus.CREATED,
                         HTTPStatus.ACCEPTED,
@@ -180,9 +153,9 @@ class PaperlessClient:
                         logger.info(f"AI scan triggered via GET {endpoint}")
                         return True
 
-            except (aiohttp.ClientError, ValueError, KeyError) as e:
-                logger.debug(f"Error trying scan endpoint {endpoint}: {e!s}")
-                continue
+                except (httpx.HTTPError, ValueError, KeyError) as e:
+                    logger.debug(f"Error trying scan endpoint {endpoint}: {e!s}")
+                    continue
 
         logger.info("No scan endpoint found, proceeding without explicit scan")
         return False
@@ -195,31 +168,26 @@ class PaperlessClient:
 
         headers = {"x-api-key": self.ai_token, "Content-Type": "application/json"}
 
-        session = await self._ensure_session()
-        try:
+        async with httpx.AsyncClient() as client:
             # Use the exact endpoint from your curl command
-            async with session.post(scan_endpoint, headers=headers) as response:
-                if response.status in [
-                    HTTPStatus.OK,
-                    HTTPStatus.CREATED,
-                    HTTPStatus.ACCEPTED,
-                ]:
-                    logger.info(f"AI scan triggered via POST {scan_endpoint}")
+            response = await client.post(scan_endpoint, headers=headers)
+            if response.status_code in [
+                HTTPStatus.OK,
+                HTTPStatus.CREATED,
+                HTTPStatus.ACCEPTED,
+            ]:
+                logger.info(f"AI scan triggered via POST {scan_endpoint}")
 
-                    # Now poll the processing status to wait for completion
-                    return await self._wait_for_ai_processing_complete(
-                        session, headers, document_id
-                    )
-                else:
-                    logger.warning(f"AI scan failed with status {response.status}")
-                    return False
-
-        except (aiohttp.ClientError, ValueError, KeyError) as e:
-            logger.error(f"Error triggering AI scan: {e!s}")
-            return False
+                # Now poll the processing status to wait for completion
+                return await self._wait_for_ai_processing_complete(
+                    client, headers, document_id
+                )
+            else:
+                logger.warning(f"AI scan failed with status {response.status_code}")
+                return False
 
     async def _wait_for_ai_processing_complete(
-        self, session, headers, target_document_id: int
+        self, client, headers, target_document_id: int
     ) -> bool:
         """Poll until our EXACT document ID appears in lastProcessed.documentId"""
         status_endpoint = f"{self.ai_url}/api/processing-status"
@@ -232,43 +200,43 @@ class PaperlessClient:
 
         for iteration in range(int(max_wait_time / check_interval)):
             try:
-                async with session.get(status_endpoint, headers=headers) as response:
-                    if response.status == HTTPStatus.OK:
-                        status_data = await response.json()
-                        logger.debug(f"AI status check #{iteration}: {status_data}")
+                response = await client.get(status_endpoint, headers=headers)
+                if response.status_code == HTTPStatus.OK:
+                    status_data = response.json()
+                    logger.debug(f"AI status check #{iteration}: {status_data}")
 
-                        last_processed = status_data.get("lastProcessed")
-                        currently_processing = status_data.get("currentlyProcessing")
+                    last_processed = status_data.get("lastProcessed")
+                    currently_processing = status_data.get("currentlyProcessing")
 
-                        # DEFINITIVE CHECK: our exact document ID in lastProcessed
-                        if last_processed and int(
-                            last_processed.get("documentId", 0)
-                        ) == int(target_document_id):
-                            logger.info(
-                                f"✅ CONFIRMED: Document {target_document_id} processed by AI"
-                            )
-                            logger.info(f"   Title: {last_processed.get('title')}")
-                            logger.info(
-                                f"   Processed at: {last_processed.get('processed_at')}"
-                            )
-                            return True
-
-                        # Show what's currently being processed
-                        if currently_processing:
-                            current_id = currently_processing.get("documentId")
-                            logger.info(
-                                f"AI currently processing document {current_id}, waiting for {target_document_id}"
-                            )
-
-                        await asyncio.sleep(check_interval)
-
-                    else:
-                        logger.warning(
-                            f"AI status check failed: HTTP {response.status}"
+                    # DEFINITIVE CHECK: our exact document ID in lastProcessed
+                    if last_processed and int(
+                        last_processed.get("documentId", 0)
+                    ) == int(target_document_id):
+                        logger.info(
+                            f"✅ CONFIRMED: Document {target_document_id} processed by AI"
                         )
-                        await asyncio.sleep(check_interval)
+                        logger.info(f"   Title: {last_processed.get('title')}")
+                        logger.info(
+                            f"   Processed at: {last_processed.get('processed_at')}"
+                        )
+                        return True
 
-            except (aiohttp.ClientError, ValueError, KeyError) as e:
+                    # Show what's currently being processed
+                    if currently_processing:
+                        current_id = currently_processing.get("documentId")
+                        logger.info(
+                            f"AI currently processing document {current_id}, waiting for {target_document_id}"
+                        )
+
+                    await asyncio.sleep(check_interval)
+
+                else:
+                    logger.warning(
+                        f"AI status check failed: HTTP {response.status_code}"
+                    )
+                    await asyncio.sleep(check_interval)
+
+            except (httpx.HTTPError, ValueError, KeyError) as e:
                 logger.error(f"Error checking AI status: {e!s}")
                 await asyncio.sleep(check_interval)
 
@@ -298,32 +266,33 @@ class PaperlessClient:
             {"id": document_id},
         ]
 
-        session = await self._ensure_session()
-        for endpoint in possible_endpoints:
-            for payload in payloads:
-                try:
-                    # Try POST
-                    async with session.post(
-                        endpoint, headers=headers, json=payload
-                    ) as response:
-                        if response.status in [
+        async with httpx.AsyncClient() as client:
+            for endpoint in possible_endpoints:
+                for payload in payloads:
+                    try:
+                        # Try POST
+                        response = await client.post(
+                            endpoint, headers=headers, json=payload
+                        )
+                        if response.status_code in [
                             HTTPStatus.OK,
                             HTTPStatus.CREATED,
                             HTTPStatus.ACCEPTED,
                         ]:
                             logger.info(f"AI processing triggered via POST {endpoint}")
                             return True
-                        elif (
-                            response.status == HTTPStatus.METHOD_NOT_ALLOWED
-                        ):  # Method not allowed, try GET
+                        elif response.status_code == HTTPStatus.METHOD_NOT_ALLOWED:
+                            # Method not allowed, try GET
                             pass
                         else:
-                            logger.debug(f"POST {endpoint} returned {response.status}")
+                            logger.debug(
+                                f"POST {endpoint} returned {response.status_code}"
+                            )
 
-                    # Try GET (some endpoints might use GET with query params)
-                    get_url = f"{endpoint}?document_id={document_id}"
-                    async with session.get(get_url, headers=headers) as response:
-                        if response.status in [
+                        # Try GET (some endpoints might use GET with query params)
+                        get_url = f"{endpoint}?document_id={document_id}"
+                        response = await client.get(get_url, headers=headers)
+                        if response.status_code in [
                             HTTPStatus.OK,
                             HTTPStatus.CREATED,
                             HTTPStatus.ACCEPTED,
@@ -331,9 +300,9 @@ class PaperlessClient:
                             logger.info(f"AI processing triggered via GET {get_url}")
                             return True
 
-                except (aiohttp.ClientError, ValueError, KeyError) as e:
-                    logger.debug(f"Error trying {endpoint}: {e!s}")
-                    continue
+                    except (httpx.HTTPError, ValueError, KeyError) as e:
+                        logger.debug(f"Error trying {endpoint}: {e!s}")
+                        continue
 
         # Fallback: Try to add AI processing tag to document in Paperless
         # This is the documented way for some Paperless-AI setups
@@ -345,14 +314,14 @@ class PaperlessClient:
             # Common tag names used by Paperless-AI setups
             ai_tag_names = ["paperless-ai", "paperless-gpt", "ai-process", "process-ai"]
 
-            session = await self._ensure_session()
-            # First, get or create the AI processing tag
-            tags_url = f"{self.base_url}/api/tags/"
-            async with session.get(tags_url, headers=self.headers) as response:
-                if response.status != HTTPStatus.OK:
+            async with httpx.AsyncClient() as client:
+                # First, get or create the AI processing tag
+                tags_url = f"{self.base_url}/api/tags/"
+                response = await client.get(tags_url, headers=self.headers)
+                if response.status_code != HTTPStatus.OK:
                     return False
 
-                tags_data = await response.json()
+                tags_data = response.json()
                 existing_tags = {
                     tag["name"]: tag["id"] for tag in tags_data.get("results", [])
                 }
@@ -368,47 +337,44 @@ class PaperlessClient:
                 if not ai_tag_id:
                     # Create new AI processing tag
                     tag_data = {"name": "paperless-ai", "color": "#FF0000"}
-                    async with session.post(
+                    create_response = await client.post(
                         tags_url, headers=self.headers, json=tag_data
-                    ) as create_response:
-                        if create_response.status in [
-                            HTTPStatus.OK,
-                            HTTPStatus.CREATED,
-                        ]:
-                            result = await create_response.json()
-                            ai_tag_id = result["id"]
-                            logger.info("Created new AI processing tag")
-                        else:
-                            return False
+                    )
+                    if create_response.status_code in [
+                        HTTPStatus.OK,
+                        HTTPStatus.CREATED,
+                    ]:
+                        result = create_response.json()
+                        ai_tag_id = result["id"]
+                        logger.info("Created new AI processing tag")
+                    else:
+                        return False
 
                 # Add tag to document
                 doc_url = f"{self.base_url}/api/documents/{document_id}/"
-                async with session.get(doc_url, headers=self.headers) as doc_response:
-                    if doc_response.status != HTTPStatus.OK:
-                        return False
+                doc_response = await client.get(doc_url, headers=self.headers)
+                if doc_response.status_code != HTTPStatus.OK:
+                    return False
 
-                    doc_data = await doc_response.json()
-                    current_tags = doc_data.get("tags", [])
+                doc_data = doc_response.json()
+                current_tags = doc_data.get("tags", [])
 
-                    if ai_tag_id not in current_tags:
-                        current_tags.append(ai_tag_id)
-                        update_data = {"tags": current_tags}
-
-                        async with session.patch(
-                            doc_url, headers=self.headers, json=update_data
-                        ) as patch_response:
-                            if patch_response.status == HTTPStatus.OK:
-                                logger.info(
-                                    f"Added AI processing tag to document {document_id}"
-                                )
-                                return True
-                    else:
+                if ai_tag_id not in current_tags:
+                    current_tags.append(ai_tag_id)
+                    update_data = {"tags": current_tags}
+                    patch_response = await client.patch(
+                        doc_url, headers=self.headers, json=update_data
+                    )
+                    if patch_response.status_code == HTTPStatus.OK:
                         logger.info(
-                            f"Document {document_id} already has AI processing tag"
+                            f"Added AI processing tag to document {document_id}"
                         )
                         return True
+                else:
+                    logger.info(f"Document {document_id} already has AI processing tag")
+                    return True
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error adding AI processing tag: {e!s}")
 
         return False
@@ -418,15 +384,15 @@ class PaperlessClient:
         url = f"{self.base_url}/api/documents/"
         params = {"query": query}
 
-        session = await self._ensure_session()
-        async with session.get(url, headers=self.headers, params=params) as response:
-            if response.status == HTTPStatus.OK:
-                return await response.json()
-            else:
-                raise PaperlessAPIError(
-                    f"Search failed: {await response.text()}",
-                    status_code=response.status,
-                )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=self.headers, params=params)
+        if response.status_code == HTTPStatus.OK:
+            return response.json()
+        else:
+            raise PaperlessAPIError(
+                f"Search failed: {response.text}",
+                status_code=response.status_code,
+            )
 
     async def query_ai(self, query: str) -> Dict[str, Any]:
         """Query Paperless-AI for intelligent document search with structured response"""
@@ -455,15 +421,15 @@ class PaperlessClient:
             {"prompt": query},
         ]
 
-        session = await self._ensure_session()
-        for endpoint in possible_endpoints:
-            for payload in payloads:
-                try:
-                    async with session.post(
-                        endpoint, headers=headers, json=payload
-                    ) as response:
-                        if response.status == HTTPStatus.OK:
-                            result = await response.json()
+        async with httpx.AsyncClient() as client:
+            for endpoint in possible_endpoints:
+                for payload in payloads:
+                    try:
+                        response = await client.post(
+                            endpoint, headers=headers, json=payload
+                        )
+                        if response.status_code == HTTPStatus.OK:
+                            result = response.json()
                             logger.info(f"AI query successful via {endpoint}")
 
                             # Parse different response formats
@@ -471,18 +437,18 @@ class PaperlessClient:
                             if parsed_response["success"]:
                                 return parsed_response
 
-                        elif response.status == HTTPStatus.NOT_FOUND:
+                        elif response.status_code == HTTPStatus.NOT_FOUND:
                             continue  # Try next endpoint
                         else:
                             logger.warning(
-                                f"AI query failed at {endpoint} with status {response.status}"
+                                f"AI query failed at {endpoint} with status {response.status_code}"
                             )
-                            error_text = await response.text()
+                            error_text = response.text
                             logger.debug(f"Error details: {error_text}")
 
-                except (aiohttp.ClientError, ValueError, KeyError) as e:
-                    logger.debug(f"Error trying {endpoint} with {payload}: {e!s}")
-                    continue
+                    except (httpx.HTTPError, ValueError, KeyError) as e:
+                        logger.debug(f"Error trying {endpoint} with {payload}: {e!s}")
+                        continue
 
         # If all endpoints failed
         return {

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-import aiohttp
+import httpx
 import diskcache as dc
 
 from .constants import (
@@ -185,7 +185,7 @@ class DocumentTracker:
             # Still processing - increment and continue
             doc.retry_count += 1
             return False
-        except (aiohttp.ClientError, ValueError, KeyError) as e:
+        except (httpx.HTTPError, ValueError, KeyError) as e:
             if "Not found" in str(e):
                 # Task completed, move to next state
                 doc.status = "waiting_for_consumption"
@@ -317,7 +317,7 @@ class DocumentTracker:
                             completed_tasks.append(task_id)
 
                     except (
-                        aiohttp.ClientError,
+                        httpx.HTTPError,
                         ValueError,
                         KeyError,
                         AttributeError,
@@ -343,7 +343,7 @@ class DocumentTracker:
                 logger.info("Document tracking loop cancelled")
                 break
             except (
-                aiohttp.ClientError,
+                httpx.HTTPError,
                 ValueError,
                 KeyError,
                 AttributeError,
@@ -363,84 +363,76 @@ class DocumentTracker:
             url = f"{doc.paperless_client.base_url}/api/documents/{doc.document_id}/"
             headers = {"Authorization": f"Token {doc.paperless_client.token}"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == HTTP_OK:
-                        doc_data = await response.json()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == HTTP_OK:
+                    doc_data = response.json()
 
-                        # Check if AI has added tags, correspondent, or document type
-                        ai_result = {
-                            "document_id": doc.document_id,
-                            "title": doc_data.get("title", doc.filename),
-                            "tags": [],
-                            "correspondent": None,
-                            "document_type": None,
-                            "content_preview": None,
-                        }
+                    # Check if AI has added tags, correspondent, or document type
+                    ai_result = {
+                        "document_id": doc.document_id,
+                        "title": doc_data.get("title", doc.filename),
+                        "tags": [],
+                        "correspondent": None,
+                        "document_type": None,
+                        "content_preview": None,
+                    }
 
-                        # Extract tag names
-                        if doc_data.get("tags"):
-                            # Tags might be IDs, need to resolve them
-                            tag_ids = doc_data["tags"]
-                            if tag_ids:
-                                tags_url = f"{doc.paperless_client.base_url}/api/tags/"
-                                async with session.get(
-                                    tags_url, headers=headers
-                                ) as tags_response:
-                                    if tags_response.status == HTTPStatus.OK:
-                                        all_tags = await tags_response.json()
-                                        tag_map = {
-                                            tag["id"]: tag["name"]
-                                            for tag in all_tags.get("results", [])
-                                        }
-                                        ai_result["tags"] = [
-                                            tag_map.get(tid, f"Tag_{tid}")
-                                            for tid in tag_ids
-                                        ]
+                    # Extract tag names
+                    if doc_data.get("tags"):
+                        # Tags might be IDs, need to resolve them
+                        tag_ids = doc_data["tags"]
+                        if tag_ids:
+                            tags_url = f"{doc.paperless_client.base_url}/api/tags/"
+                            tags_response = await client.get(tags_url, headers=headers)
+                            if tags_response.status_code == HTTPStatus.OK:
+                                all_tags = tags_response.json()
+                                tag_map = {
+                                    tag["id"]: tag["name"]
+                                    for tag in all_tags.get("results", [])
+                                }
+                                ai_result["tags"] = [
+                                    tag_map.get(tid, f"Tag_{tid}") for tid in tag_ids
+                                ]
 
-                        # Get correspondent name
-                        if doc_data.get("correspondent"):
-                            corr_id = doc_data["correspondent"]
-                            corr_url = f"{doc.paperless_client.base_url}/api/correspondents/{corr_id}/"
-                            async with session.get(
-                                corr_url, headers=headers
-                            ) as corr_response:
-                                if corr_response.status == HTTPStatus.OK:
-                                    corr_data = await corr_response.json()
-                                    ai_result["correspondent"] = corr_data.get("name")
+                    # Get correspondent name
+                    if doc_data.get("correspondent"):
+                        corr_id = doc_data["correspondent"]
+                        corr_url = f"{doc.paperless_client.base_url}/api/correspondents/{corr_id}/"
+                        corr_response = await client.get(corr_url, headers=headers)
+                        if corr_response.status_code == HTTPStatus.OK:
+                            corr_data = corr_response.json()
+                            ai_result["correspondent"] = corr_data.get("name")
 
-                        # Get document type
-                        if doc_data.get("document_type"):
-                            type_id = doc_data["document_type"]
-                            type_url = f"{doc.paperless_client.base_url}/api/document_types/{type_id}/"
-                            async with session.get(
-                                type_url, headers=headers
-                            ) as type_response:
-                                if type_response.status == HTTPStatus.OK:
-                                    type_data = await type_response.json()
-                                    ai_result["document_type"] = type_data.get("name")
+                    # Get document type
+                    if doc_data.get("document_type"):
+                        type_id = doc_data["document_type"]
+                        type_url = f"{doc.paperless_client.base_url}/api/document_types/{type_id}/"
+                        type_response = await client.get(type_url, headers=headers)
+                        if type_response.status_code == HTTPStatus.OK:
+                            type_data = type_response.json()
+                            ai_result["document_type"] = type_data.get("name")
 
-                        # Get content preview if available
-                        if doc_data.get("content"):
-                            ai_result["content_preview"] = (
-                                doc_data["content"][:CONTENT_PREVIEW_LENGTH] + "..."
-                                if len(doc_data.get("content", ""))
-                                > CONTENT_PREVIEW_LENGTH
-                                else doc_data.get("content")
-                            )
+                    # Get content preview if available
+                    if doc_data.get("content"):
+                        ai_result["content_preview"] = (
+                            doc_data["content"][:CONTENT_PREVIEW_LENGTH] + "..."
+                            if len(doc_data.get("content", "")) > CONTENT_PREVIEW_LENGTH
+                            else doc_data.get("content")
+                        )
 
-                        # Consider it AI processed if we have tags or other AI-added metadata
-                        if (
-                            ai_result["tags"]
-                            or ai_result["correspondent"]
-                            or ai_result["document_type"]
-                        ):
-                            return ai_result
+                    # Consider it AI processed if we have tags or other AI-added metadata
+                    if (
+                        ai_result["tags"]
+                        or ai_result["correspondent"]
+                        or ai_result["document_type"]
+                    ):
+                        return ai_result
 
-                        # If no AI metadata yet, return None to keep checking
-                        return None
+                    # If no AI metadata yet, return None to keep checking
+                    return None
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error checking AI processing: {e!s}")
             return None
 
@@ -454,54 +446,52 @@ class DocumentTracker:
             url = f"{doc.paperless_client.base_url}/api/documents/{doc.document_id}/"
             headers = {"Authorization": f"Token {doc.paperless_client.token}"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == HTTP_NOT_FOUND:
-                        # Document doesn't exist - likely rejected or failed
-                        logger.warning(
-                            f"Document {doc.document_id} not found - may have been rejected (duplicate?)"
-                        )
-                        return False
-                    elif response.status != HTTP_OK:
-                        logger.warning(
-                            f"Could not check document: HTTP {response.status}"
-                        )
-                        return False
-
-                    doc_data = await response.json()
-
-                    # Second: Check document has been fully consumed and indexed
-                    has_content = bool(doc_data.get("content", "").strip())
-                    has_created_date = bool(doc_data.get("created"))
-
-                    # Third: Verify it's not just a stub - should have actual data
-                    checksum = doc_data.get("checksum", "")
-                    file_type = doc_data.get("file_type", "")
-
-                    # Document is ready if:
-                    # 1. Has content (OCR completed) - this means it's been consumed AND indexed
-                    # 2. Has creation date (stored in DB)
-                    # If we can retrieve it with content via API, it must be consumed
-                    is_indexed = has_content and has_created_date
-
-                    logger.info(
-                        f"Document {doc.document_id} status - indexed: {is_indexed}"
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == HTTP_NOT_FOUND:
+                    # Document doesn't exist - likely rejected or failed
+                    logger.warning(
+                        f"Document {doc.document_id} not found - may have been rejected (duplicate?)"
                     )
-                    logger.info(
-                        f"  - has_content: {has_content}, has_created_date: {has_created_date}"
+                    return False
+                elif response.status_code != HTTP_OK:
+                    logger.warning(
+                        f"Could not check document: HTTP {response.status_code}"
                     )
-                    logger.info(
-                        f"  - checksum: {bool(checksum)}, file_type: {file_type}"
-                    )
+                    return False
 
-                    # If indexed with content, it's ready for AI processing
-                    if is_indexed:
-                        # Final check: verify document is searchable (fully committed to DB)
-                        return await self._verify_document_searchable(doc)
-                    else:
-                        return False
+                doc_data = response.json()
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+                # Second: Check document has been fully consumed and indexed
+                has_content = bool(doc_data.get("content", "").strip())
+                has_created_date = bool(doc_data.get("created"))
+
+                # Third: Verify it's not just a stub - should have actual data
+                checksum = doc_data.get("checksum", "")
+                file_type = doc_data.get("file_type", "")
+
+                # Document is ready if:
+                # 1. Has content (OCR completed) - this means it's been consumed AND indexed
+                # 2. Has creation date (stored in DB)
+                # If we can retrieve it with content via API, it must be consumed
+                is_indexed = has_content and has_created_date
+
+                logger.info(
+                    f"Document {doc.document_id} status - indexed: {is_indexed}"
+                )
+                logger.info(
+                    f"  - has_content: {has_content}, has_created_date: {has_created_date}"
+                )
+                logger.info(f"  - checksum: {bool(checksum)}, file_type: {file_type}")
+
+                # If indexed with content, it's ready for AI processing
+                if is_indexed:
+                    # Final check: verify document is searchable (fully committed to DB)
+                    return await self._verify_document_searchable(doc)
+                else:
+                    return False
+
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error checking if document is ready: {e!s}")
             return False
 
@@ -518,31 +508,31 @@ class DocumentTracker:
             }
             headers = {"Authorization": f"Token {doc.paperless_client.token}"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, params=params) as response:
-                    if response.status == HTTP_OK:
-                        recent_docs = await response.json()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, params=params)
+                if response.status_code == HTTP_OK:
+                    recent_docs = response.json()
 
-                        # Check if our document appears in the recent documents list
-                        found_docs = recent_docs.get("results", [])
-                        for found_doc in found_docs:
-                            if found_doc.get("id") == doc.document_id:
-                                logger.info(
-                                    f"Document {doc.document_id} found in recent documents list - ready for AI"
-                                )
-                                return True
+                    # Check if our document appears in the recent documents list
+                    found_docs = recent_docs.get("results", [])
+                    for found_doc in found_docs:
+                        if found_doc.get("id") == doc.document_id:
+                            logger.info(
+                                f"Document {doc.document_id} found in recent documents list - ready for AI"
+                            )
+                            return True
 
-                        logger.info(
-                            f"Document {doc.document_id} not in recent documents list yet - not ready"
-                        )
-                        return False
-                    else:
-                        logger.warning(
-                            f"Recent documents query failed: HTTP {response.status}"
-                        )
-                        return False
+                    logger.info(
+                        f"Document {doc.document_id} not in recent documents list yet - not ready"
+                    )
+                    return False
+                else:
+                    logger.warning(
+                        f"Recent documents query failed: HTTP {response.status_code}"
+                    )
+                    return False
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error verifying document in recent list: {e!s}")
             return False
 
@@ -561,34 +551,34 @@ class DocumentTracker:
             }
             headers = {"Authorization": f"Token {paperless_client.token}"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, params=params) as response:
-                    if response.status == HTTP_OK:
-                        recent_docs = await response.json()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, params=params)
+                if response.status_code == HTTP_OK:
+                    recent_docs = response.json()
 
-                        # Look for our UUID in original_file_name or title
-                        for doc in recent_docs.get("results", []):
-                            original_name = doc.get("original_file_name", "")
-                            title = doc.get("title", "")
+                    # Look for our UUID in original_file_name or title
+                    for doc in recent_docs.get("results", []):
+                        original_name = doc.get("original_file_name", "")
+                        title = doc.get("title", "")
 
-                            if tracking_uuid in original_name or tracking_uuid in title:
-                                doc_id = doc.get("id")
-                                logger.info(
-                                    f"🔍 DEFINITIVE MATCH: Found document {doc_id} with UUID {tracking_uuid}"
-                                )
-                                logger.info(f"   Original name: {original_name}")
-                                logger.info(f"   Title: {title}")
-                                return doc_id
+                        if tracking_uuid in original_name or tracking_uuid in title:
+                            doc_id = doc.get("id")
+                            logger.info(
+                                f"🔍 DEFINITIVE MATCH: Found document {doc_id} with UUID {tracking_uuid}"
+                            )
+                            logger.info(f"   Original name: {original_name}")
+                            logger.info(f"   Title: {title}")
+                            return doc_id
 
-                        logger.warning(f"No document found with UUID {tracking_uuid}")
-                        return None
-                    else:
-                        logger.error(
-                            f"Failed to search for UUID: HTTP {response.status}"
-                        )
-                        return None
+                    logger.warning(f"No document found with UUID {tracking_uuid}")
+                    return None
+                else:
+                    logger.error(
+                        f"Failed to search for UUID: HTTP {response.status_code}"
+                    )
+                    return None
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error finding document by UUID: {e!s}")
             return None
 
@@ -598,12 +588,10 @@ class DocumentTracker:
         params = {"ordering": "-created", "page_size": 20}
         headers = {"Authorization": f"Token {paperless_client.token}"}
 
-        import aiohttp
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
-                if response.status == HTTP_OK:
-                    return await response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+            if response.status_code == HTTP_OK:
+                return response.json()
         return None
 
     def _is_document_recent(self, doc_created_str: str, time_threshold) -> bool:
@@ -671,7 +659,7 @@ class DocumentTracker:
                                 )
                                 return doc_id
 
-                except (aiohttp.ClientError, ValueError, KeyError) as e:
+                except (httpx.HTTPError, ValueError, KeyError) as e:
                     logger.debug(f"Error searching with term '{term}': {e}")
                     continue
 
@@ -680,7 +668,7 @@ class DocumentTracker:
             )
             return None
 
-        except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
+        except (httpx.HTTPError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Error finding document by filename: {e!s}")
             return None
 

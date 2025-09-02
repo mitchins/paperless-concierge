@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Focused tests to improve bot.py coverage without external dependencies.
-Uses aioresponses for proper HTTP mocking.
+Uses respx for proper HTTP mocking.
 """
 
 import asyncio
@@ -16,8 +16,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 # Import what we need after setting up the path
-import aiohttp
-from aioresponses import aioresponses
+import httpx
 from telegram import (
     Update,
     InlineKeyboardMarkup,
@@ -247,7 +246,7 @@ async def test_get_paperless_client():
             )
 
 
-async def test_handle_document_photo():
+async def test_handle_document_photo(httpx_mock):
     """Test document handling with photo attachment"""
     print("Testing document handling with photo...")
 
@@ -280,36 +279,33 @@ async def test_handle_document_photo():
         mock_status_message.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=mock_status_message)
 
-        # Mock the paperless client with proper aioresponses
-        with aioresponses() as m:
-            # Mock the upload endpoint
-            m.post(
-                "http://test:8000/api/documents/post_document/",
-                status=200,
-                payload={"task_id": "task-123"},
-            )
-            # Mock the immediate status check - return success
-            m.get(
-                "http://test:8000/api/tasks/task-123/",
-                status=200,
-                payload={"status": "PENDING", "task_id": "task-123"},
-            )
+        # HTTP-level stubs for upload and immediate status
+        httpx_mock.add_response(
+            method="POST",
+            url="http://test:8000/api/documents/post_document/",
+            json={"task_id": "task-123"},
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/tasks/task-123/",
+            json={"status": "PENDING", "task_id": "task-123"},
+            status_code=200,
+        )
 
-            await bot.handle_document(update, context)
+        await bot.handle_document(update, context)
 
-            # Verify the upload flow
-            update.message.reply_text.assert_called_with(
-                "📤 Uploading to Paperless-NGX..."
-            )
-            # The status message should be edited after upload
-            mock_status_message.edit_text.assert_called()
-            # Task should be stored in the nested dictionary
-            assert bot.upload_tasks.get(12345) is not None
-            assert bot.upload_tasks[12345]["task_id"] == "task-123"
-            await bot.aclose()
+        # Verify the upload flow
+        update.message.reply_text.assert_called_with("📤 Uploading to Paperless-NGX...")
+        # The status message should be edited after upload
+        mock_status_message.edit_text.assert_called()
+        # Task should be stored in the nested dictionary
+        assert bot.upload_tasks.get(12345) is not None
+        assert bot.upload_tasks[12345]["task_id"] == "task-123"
+        await bot.aclose()
 
 
-async def test_handle_document_document_file_uploaded_success():
+async def test_handle_document_document_file_uploaded_success(httpx_mock):
     """Test document upload branch where no task_id is returned"""
     with patch("paperless_concierge.bot.get_user_manager") as mock_get_user_manager:
         mock_user_config = Mock()
@@ -341,20 +337,22 @@ async def test_handle_document_document_file_uploaded_success():
         mock_status_message.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=mock_status_message)
 
-        # Mock the paperless client to return no task id
-        client = Mock()
-        client.upload_document = AsyncMock(return_value={})
+        # Stub upload to return empty dict (no task_id)
+        httpx_mock.add_response(
+            method="POST",
+            url="http://test:8000/api/documents/post_document/",
+            json={},
+            status_code=200,
+        )
+        await bot.handle_document(update, context)
 
-        with patch.object(bot, "get_paperless_client", return_value=client):
-            await bot.handle_document(update, context)
-
-            # The status message should have been edited to success without task tracking
-            assert mock_status_message.edit_text.called
-            message_text = mock_status_message.edit_text.call_args[0][0]
-            assert "uploaded successfully" in message_text.lower()
+        # The status message should have been edited to success without task tracking
+        assert mock_status_message.edit_text.called
+        message_text = mock_status_message.edit_text.call_args[0][0]
+        assert "uploaded successfully" in message_text.lower()
 
 
-async def test_query_documents():
+async def test_query_documents(httpx_mock):
     """Test document query functionality"""
     print("Testing document query...")
 
@@ -379,25 +377,26 @@ async def test_query_documents():
         context.args = ["test", "query"]
         update.message.reply_text = AsyncMock(return_value=Mock(edit_text=AsyncMock()))
 
-        # Mock HTTP responses for search
-        with aioresponses() as m:
-            m.get(
-                "http://test:8000/api/documents/",
-                status=200,
-                payload={
-                    "count": 2,
-                    "results": [
-                        {"title": "Document 1", "id": 1},
-                        {"title": "Document 2", "id": 2},
-                    ],
-                },
-            )
+        # Use HTTP-level mocking for document search (tests actual URL construction)
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/documents/?query=test+query",
+            json={
+                "count": 2,
+                "results": [
+                    {"title": "Document 1", "id": 1},
+                    {"title": "Document 2", "id": 2},
+                ],
+            },
+            status_code=200,
+        )
+        # No AI mock needed - AI is disabled (None URLs) so it won't make HTTP calls
 
-            await bot.query_documents(update, context)
+        await bot.query_documents(update, context)
 
-            # Verify search was performed
-            update.message.reply_text.assert_called()
-            await bot.aclose()
+        # Verify search was performed
+        update.message.reply_text.assert_called()
+        await bot.aclose()
 
 
 async def test_query_documents_ai_success():
@@ -482,7 +481,7 @@ async def test_query_documents_ai_unavailable_no_results():
             assert "no documents found" in call.args[0].lower()
 
 
-async def test_check_status():
+async def test_check_status(httpx_mock):
     """Test status check functionality"""
     print("Testing status check...")
 
@@ -512,22 +511,22 @@ async def test_check_status():
         update.callback_query = mock_query
         context = Mock()
 
-        # Mock HTTP response for status check
-        with aioresponses() as m:
-            m.get(
-                "http://test:8000/api/tasks/task-123/",
-                status=200,
-                payload={"status": "SUCCESS"},
-            )
+        # Use HTTP-level mocking for status checks (proper URL testing)
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/tasks/task-123/",
+            json={"status": "SUCCESS"},
+            status_code=200,
+        )
 
-            await bot.check_status(update, context)
+        await bot.check_status(update, context)
 
-            # Verify status was checked
-            mock_query.answer.assert_called_once()
-            mock_query.edit_message_text.assert_called_once()
-            call_args = mock_query.edit_message_text.call_args[0][0]
-            assert "successfully" in call_args
-            await bot.aclose()
+        # Verify status was checked
+        mock_query.answer.assert_called_once()
+        mock_query.edit_message_text.assert_called_once()
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "successfully" in call_args
+        await bot.aclose()
 
 
 async def test_check_status_failure_and_processing():
@@ -557,29 +556,29 @@ async def test_check_status_failure_and_processing():
         update.callback_query = mock_query
         context = Mock()
 
-    # FAILURE path
-    client = Mock()
-    client.get_document_status = AsyncMock(
-        return_value={"status": "FAILURE", "result": "Boom"}
-    )
-    with patch(
-        "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
-    ):
-        with patch.object(bot, "get_paperless_client", return_value=client):
-            await bot.check_status(update, context)
-            msg = mock_query.edit_message_text.call_args[0][0]
-            assert "failed" in msg.lower()
+        # FAILURE path
+        client = Mock()
+        client.get_document_status = AsyncMock(
+            return_value={"status": "FAILURE", "result": "Boom"}
+        )
+        with patch(
+            "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
+        ):
+            with patch.object(bot, "get_paperless_client", return_value=client):
+                await bot.check_status(update, context)
+                msg = mock_query.edit_message_text.call_args[0][0]
+                assert "failed" in msg.lower()
 
-    # PROCESSING path
-    mock_query.edit_message_text.reset_mock()
-    client.get_document_status = AsyncMock(return_value={"status": "PENDING"})
-    with patch(
-        "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
-    ):
-        with patch.object(bot, "get_paperless_client", return_value=client):
-            await bot.check_status(update, context)
-            msg = mock_query.edit_message_text.call_args[0][0]
-            assert "processing" in msg.lower()
+        # PROCESSING path
+        mock_query.edit_message_text.reset_mock()
+        client.get_document_status = AsyncMock(return_value={"status": "PENDING"})
+        with patch(
+            "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
+        ):
+            with patch.object(bot, "get_paperless_client", return_value=client):
+                await bot.check_status(update, context)
+                msg = mock_query.edit_message_text.call_args[0][0]
+                assert "processing" in msg.lower()
     await bot.aclose()
 
 

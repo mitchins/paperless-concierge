@@ -11,20 +11,17 @@ Run with any of:
 """
 
 import os
-import inspect
+
 import sys
-import unittest
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, Mock, patch
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-# Third‑party test helper
-from aioresponses import aioresponses
+# No direct HTTP imports required; we mock at the client boundary
 
 # =============================================================================
 # Shared Telegram-ish mocks
@@ -165,234 +162,184 @@ def make_callback_query(
 
 
 # =============================================================================
-# Tests (unittest, no custom prints)
-# =============================================================================
+import pytest
 
 
-class HTTPWorkflowTests(IsolatedAsyncioTestCase):
-    async def test_paperless_upload_workflow(self):
-        """End-to-end document upload with task status."""
-        with patched_user_manager(_default_user_config(ai=True)):
-            bot = TelegramConcierge()
-            update, context, status_msg = make_update_context(with_photo=True)
+@pytest.mark.asyncio
+async def test_document_tracker_workflow_pytest():
+    """Basic DocumentTracker plumbing."""
+    tracker = DocumentTracker(Mock())
 
-            with aioresponses() as m:
-                m.post(
-                    "http://test:8000/api/documents/post_document/",
-                    status=200,
-                    payload={"task_id": "upload-task-123"},
-                )
-                m.get(
-                    "http://test:8000/api/tasks/upload-task-123/",
-                    status=200,
-                    payload={
-                        "status": "SUCCESS",
-                        "document_id": 456,
-                        "result": {"document_id": 456},
-                    },
-                )
+    mock_client = Mock()
+    mock_client.base_url = "http://test:8000"
+    mock_client.token = "test_token"
 
-                await bot.handle_document(update, context)
+    doc = TrackedDocument(
+        task_id="test-task-123",
+        user_id=12345,
+        chat_id=12345,
+        filename="test.pdf",
+        upload_time=datetime.now(),
+        paperless_client=mock_client,
+        tracking_uuid="uuid-123",
+    )
+    doc.document_id = 999
 
-                update.message.reply_text.assert_called_with(
-                    "📤 Uploading to Paperless-NGX..."
-                )
-                status_msg.edit_text.assert_called()
-                self.assertEqual(
-                    bot.upload_tasks[update.message.chat_id]["task_id"],
-                    "upload-task-123",
-                )
-                await bot.aclose()
+    tracker.tracked_documents[doc.task_id] = doc
+    assert list(tracker.tracked_documents.values())
 
-    async def test_document_search_workflow(self):
-        """Basic search via HTTP."""
-        with patched_user_manager(_default_user_config(ai=False)):
-            bot = TelegramConcierge()
-            update, context, _ = make_update_context(
-                text="/search test query", args=["test", "query"]
-            )
+    tracker.cleanup()
 
-            with aioresponses() as m:
-                m.get(
-                    "http://test:8000/api/documents/",
-                    status=200,
-                    payload={
-                        "count": 2,
-                        "results": [
-                            {
-                                "id": 1,
-                                "title": "Test Document 1",
-                                "created": "2023-01-01",
-                                "tags": [1, 2],
-                            },
-                            {
-                                "id": 2,
-                                "title": "Test Document 2",
-                                "created": "2023-01-02",
-                                "tags": [],
-                            },
-                        ],
-                    },
-                )
 
-                await bot.query_documents(update, context)
-                update.message.reply_text.assert_called()
-                await bot.aclose()
+@pytest.mark.asyncio
+async def test_paperless_client_workflows_pytest():
+    """Direct PaperlessClient method calls with monkeypatched coroutines (no network)."""
+    client = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="test_token",
+        paperless_ai_url="http://test-ai:8080",
+        paperless_ai_token="test_ai_token",
+    )
 
-    async def test_ai_query_workflow(self):
-        """AI query path with fallback search."""
-        with patched_user_manager(_default_user_config(ai=True)):
-            bot = TelegramConcierge()
-            prompt = "What invoices do I have from 2023?"
-            update, context, _ = make_update_context(text=prompt, args=prompt.split())
+    with patch.object(client, "upload_document") as mock_upload:
+        with patch.object(client, "search_documents") as mock_search:
 
-            with aioresponses() as m:
-                m.post(
-                    "http://test-ai:8080/api/chat",
-                    status=200,
-                    payload={
-                        "success": True,
-                        "answer": "Based on the documents, here's the information...",
-                        "documents_found": [
-                            {"title": "Relevant Doc 1", "id": 123},
-                            {"title": "Relevant Doc 2", "id": 124},
-                        ],
-                        "tags_found": ["invoice", "2023"],
-                        "confidence": 0.85,
-                        "sources": ["Document 1", "Document 2"],
-                    },
-                )
-                m.get(
-                    "http://test:8000/api/documents/",
-                    status=200,
-                    payload={
-                        "count": 1,
-                        "results": [{"title": "Fallback Doc", "id": 999}],
-                    },
-                )
+            async def _upload(_path, **_kw):
+                return {"task_id": "client-task-789"}
 
-                await bot.query_documents(update, context)
-                update.message.reply_text.assert_called()
-                await bot.aclose()
-
-    async def test_document_status_check_workflow(self):
-        """Button callback → task status check."""
-        with patched_user_manager(_default_user_config()):
-            bot = TelegramConcierge()
-
-            mock_query = make_callback_query(data="status_status-task-456")
-            update = MockUpdate()
-            update.callback_query = mock_query
-            context = Mock()
-
-            with aioresponses() as m:
-                m.get(
-                    "http://test:8000/api/tasks/status-task-456/",
-                    status=200,
-                    payload={
-                        "status": "SUCCESS",
-                        "document_id": 789,
-                        "result": {"document_id": 789},
-                    },
-                )
-
-                await bot.check_status(update, context)
-
-                mock_query.answer.assert_called_once()
-                mock_query.edit_message_text.assert_called_once()
-                self.assertIn(
-                    "successfully", mock_query.edit_message_text.call_args[0][0]
-                )
-                await bot.aclose()
-
-    async def test_document_tracker_workflow(self):
-        """Basic DocumentTracker plumbing."""
-        tracker = DocumentTracker(Mock())
-
-        mock_client = Mock()
-        mock_client.base_url = "http://test:8000"
-        mock_client.token = "test_token"
-
-        doc = TrackedDocument(
-            task_id="test-task-123",
-            user_id=12345,
-            chat_id=12345,
-            filename="test.pdf",
-            upload_time=datetime.now(),
-            paperless_client=mock_client,
-            tracking_uuid="uuid-123",
-        )
-        doc.document_id = 999
-
-        tracker.tracked_documents[doc.task_id] = doc
-        self.assertTrue(list(tracker.tracked_documents.values()))
-
-        tracker.cleanup()
-
-    async def test_paperless_client_workflows(self):
-        """Direct PaperlessClient HTTPs."""
-        client = PaperlessClient(
-            paperless_url="http://test:8000",
-            paperless_token="test_token",
-            paperless_ai_url="http://test-ai:8080",
-            paperless_ai_token="test_ai_token",
-        )
-
-        with aioresponses() as m:
-            m.post(
-                "http://test:8000/api/documents/post_document/",
-                status=200,
-                payload={"task_id": "client-task-789"},
-            )
-            m.get(
-                "http://test:8000/api/documents/",
-                status=200,
-                payload={
+            async def _search(_q):
+                return {
                     "count": 1,
                     "results": [{"id": 555, "title": "Direct Client Test"}],
-                },
-            )
+                }
 
-            # Upload (guarded — we only care that HTTP layer is exercised)
-            with patch("builtins.open"):
-                try:
-                    await client.upload_document("/fake/path/test.pdf")
-                except Exception:
-                    pass
+            mock_upload.side_effect = _upload
+            mock_search.side_effect = _search
 
-            # Search
-            try:
-                results = await client.search_documents("test query")
-                self.assertIsNotNone(results)
-            except Exception:
-                pass
+            result = await client.upload_document("/fake/path/test.pdf")
+            assert result.get("task_id") == "client-task-789"
 
-            if hasattr(client, "aclose"):
-                await client.aclose()
-            else:
-                res = getattr(client, "close", lambda: None)()
-                if inspect.isawaitable(res):
-                    await res
-
-    async def test_error_handling_workflows(self):
-        """HTTP error paths (e.g., 404 search)."""
-        with patched_user_manager(_default_user_config(ai=False)):
-            bot = TelegramConcierge()
-            update, context, _ = make_update_context(
-                text="/search nonexistent", args=["nonexistent"]
-            )
-
-            with aioresponses() as m:
-                m.get(
-                    "http://test:8000/api/documents/",
-                    status=404,
-                    payload={"error": "Not found"},
-                )
-
-                await bot.query_documents(update, context)
-                update.message.reply_text.assert_called()
-                await bot.aclose()
+            results = await client.search_documents("test query")
+            assert results["count"] == 1
 
 
-if __name__ == "__main__":
-    unittest.main()
+# Separate pytest-style async test to allow using pytest-httpx fixture
+import asyncio
+
+
+# Covered by tests/test_bot_features.py::test_query_documents
+
+
+@pytest.mark.asyncio
+async def test_document_status_check_workflow_httpx(httpx_mock):
+    """Button callback → task status check via HTTP boundary using pytest-httpx."""
+    with patched_user_manager(_default_user_config()):
+        bot = TelegramConcierge()
+
+        mock_query = make_callback_query(data="status_status-task-456")
+        update = MockUpdate()
+        update.callback_query = mock_query
+        context = Mock()
+
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/tasks/status-task-456/",
+            json={
+                "status": "SUCCESS",
+                "document_id": 789,
+                "result": {"document_id": 789},
+            },
+            status_code=200,
+        )
+
+        await bot.check_status(update, context)
+
+        mock_query.answer.assert_called_once()
+        mock_query.edit_message_text.assert_called_once()
+        assert "successfully" in mock_query.edit_message_text.call_args[0][0]
+        await bot.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ai_query_workflow_httpx(httpx_mock):
+    """AI query path with AI endpoint stubbed via pytest-httpx."""
+    with patched_user_manager(_default_user_config(ai=True)):
+        bot = TelegramConcierge()
+        prompt = "What invoices do I have from 2023?"
+        update, context, _ = make_update_context(text=prompt, args=prompt.split())
+
+        # Stub AI chat endpoint to return a successful structured response
+        httpx_mock.add_response(
+            method="POST",
+            url="http://test-ai:8080/api/chat",
+            json={
+                "answer": "Based on the documents, here's the information...",
+                "documents": [
+                    {"title": "Relevant Doc 1", "id": 123},
+                    {"title": "Relevant Doc 2", "id": 124},
+                ],
+                "tags": ["invoice", "2023"],
+                "confidence": 0.85,
+                "sources": ["Document 1", "Document 2"],
+            },
+            status_code=200,
+        )
+
+        # No fallback search expected; but even if triggered, we can add a stub if needed
+        await bot.query_documents(update, context)
+        update.message.reply_text.assert_called()
+        await bot.aclose()
+
+
+@pytest.mark.asyncio
+async def test_paperless_upload_workflow_httpx(httpx_mock):
+    """End-to-end document upload with task status via HTTP stubs."""
+    with patched_user_manager(_default_user_config(ai=True)):
+        bot = TelegramConcierge()
+        update, context, status_msg = make_update_context(with_photo=True)
+
+        httpx_mock.add_response(
+            method="POST",
+            url="http://test:8000/api/documents/post_document/",
+            json={"task_id": "upload-task-123"},
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/tasks/upload-task-123/",
+            json={
+                "status": "SUCCESS",
+                "document_id": 456,
+                "result": {"document_id": 456},
+            },
+            status_code=200,
+        )
+
+        await bot.handle_document(update, context)
+
+        update.message.reply_text.assert_called_with("📤 Uploading to Paperless-NGX...")
+        status_msg.edit_text.assert_called()
+        assert bot.upload_tasks[update.message.chat_id]["task_id"] == "upload-task-123"
+        await bot.aclose()
+
+
+@pytest.mark.asyncio
+async def test_error_handling_workflows_httpx(httpx_mock):
+    """HTTP error paths: 404 search via httpx stub."""
+    with patched_user_manager(_default_user_config(ai=False)):
+        bot = TelegramConcierge()
+        update, context, _ = make_update_context(
+            text="/search nonexistent", args=["nonexistent"]
+        )
+
+        # AI disabled; stub documents search to 404
+        httpx_mock.add_response(
+            method="GET",
+            url="http://test:8000/api/documents/?query=nonexistent",
+            status_code=404,
+            json={"error": "Not found"},
+        )
+
+        await bot.query_documents(update, context)
+        update.message.reply_text.assert_called()
+        await bot.aclose()
