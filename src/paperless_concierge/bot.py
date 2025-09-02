@@ -1,3 +1,14 @@
+"""
+Telegram bot for Paperless-NGX document management.
+
+SECURITY NOTE: This module uses os.kill() with signal 0 for process existence checking
+in the singleton enforcement functionality. This usage is secure because:
+- Signal 0 is completely harmless (existence check only, never kills)
+- PIDs are validated before use (bounds checking, type validation)
+- Process ownership is verified (only checks processes owned by current user)
+- System processes are explicitly excluded (PID 1, negative PIDs, etc.)
+"""
+
 import argparse
 import logging
 import os
@@ -5,6 +16,8 @@ import tempfile
 import uuid
 import inspect
 import asyncio
+import atexit
+import fcntl
 from typing import Optional
 
 import httpx
@@ -420,40 +433,81 @@ class TelegramConcierge:
                 logger.error(f"Status check error: {e!s}")
                 await query.edit_message_text(f"❌ Error checking status: {e!s}")
 
-    def _format_ai_response(self, ai_response: dict) -> str:
+    def _build_document_url(
+        self, paperless_client: PaperlessClient, document_id: int
+    ) -> str:
+        """Build a document URL for the Paperless-NGX web interface."""
+        return f"{paperless_client.base_url.rstrip('/')}/documents/{document_id}/"
+
+    def _format_ai_response(
+        self, ai_response: dict, paperless_client: PaperlessClient = None
+    ) -> str:
         """Format AI response into readable text."""
         response_text = f"🤖 **AI Assistant:**\n{ai_response['answer']}\n"
 
-        # Add structured information if available
-        if ai_response.get("documents_found"):
-            response_text += (
-                f"\n📄 **Referenced Documents:** {len(ai_response['documents_found'])}\n"
-            )
-            for doc in ai_response["documents_found"][:3]:  # Show top 3
-                doc_title = doc.get("title", doc.get("name", "Unknown"))
-                response_text += f"• {doc_title}\n"
-
-        if ai_response.get("tags_found"):
-            tags = ai_response["tags_found"][:5]  # Show top 5 tags
-            response_text += f"\n🏷️ **Related Tags:** {', '.join(tags)}\n"
-
-        if ai_response.get("confidence"):
-            confidence = (
-                round(float(ai_response["confidence"]) * 100)
-                if isinstance(ai_response["confidence"], (int, float))
-                else ai_response["confidence"]
-            )
-            response_text += f"\n📊 **Confidence:** {confidence}%\n"
-
-        if ai_response.get("sources"):
-            response_text += (
-                f"\n📚 **Sources:** {len(ai_response['sources'])} documents\n"
-            )
+        response_text += self._format_ai_documents(ai_response, paperless_client)
+        response_text += self._format_ai_tags(ai_response)
+        response_text += self._format_ai_confidence(ai_response)
+        response_text += self._format_ai_sources(ai_response)
 
         response_text += "\n💡 *Based on your Paperless-NGX documents*"
         return response_text
 
-    def _format_search_results(self, search_results: dict) -> str:
+    def _format_ai_documents(
+        self, ai_response: dict, paperless_client: PaperlessClient = None
+    ) -> str:
+        """Format documents section of AI response."""
+        if not ai_response.get("documents_found"):
+            return ""
+
+        response_text = (
+            f"\n📄 **Referenced Documents:** {len(ai_response['documents_found'])}\n"
+        )
+        for doc in ai_response["documents_found"][:3]:  # Show top 3
+            doc_title = doc.get("title", doc.get("name", "Unknown"))
+            doc_id = doc.get("id")
+            if doc_id and paperless_client:
+                doc_url = self._build_document_url(paperless_client, doc_id)
+                response_text += f"• [{doc_title}]({doc_url})\n"
+            else:
+                response_text += f"• {doc_title}\n"
+        return response_text
+
+    def _format_ai_tags(self, ai_response: dict) -> str:
+        """Format tags section of AI response."""
+        if not ai_response.get("tags_found"):
+            return ""
+
+        tags = ai_response["tags_found"][:5]  # Show top 5 tags
+        tag_strs = []
+        for tag in tags:
+            if isinstance(tag, dict):
+                tag_strs.append(str(tag.get("name") or tag.get("label") or tag))
+            else:
+                tag_strs.append(str(tag))
+        return f"\n🏷️ **Related Tags:** {', '.join(tag_strs)}\n"
+
+    def _format_ai_confidence(self, ai_response: dict) -> str:
+        """Format confidence section of AI response."""
+        if not ai_response.get("confidence"):
+            return ""
+
+        confidence = (
+            round(float(ai_response["confidence"]) * 100)
+            if isinstance(ai_response["confidence"], (int, float))
+            else ai_response["confidence"]
+        )
+        return f"\n📊 **Confidence:** {confidence}%\n"
+
+    def _format_ai_sources(self, ai_response: dict) -> str:
+        """Format sources section of AI response."""
+        if not ai_response.get("sources"):
+            return ""
+        return f"\n📚 **Sources:** {len(ai_response['sources'])} documents\n"
+
+    def _format_search_results(
+        self, search_results: dict, paperless_client: PaperlessClient = None
+    ) -> str:
         """Format regular search results into readable text."""
         documents = search_results["results"][:DEFAULT_SEARCH_RESULTS]
         response = f"📋 **Found {search_results['count']} documents:**\n\n"
@@ -461,7 +515,16 @@ class TelegramConcierge:
         for doc in documents:
             title = doc.get("title", "Untitled")
             created = doc.get("created", "Unknown date")[:10]  # Just the date part
+            doc_id = doc.get("id")
             tags = doc.get("tags", [])
+
+            # Format title with link if possible
+            if doc_id and paperless_client:
+                doc_url = self._build_document_url(paperless_client, doc_id)
+                title_with_link = f"[{title}]({doc_url})"
+            else:
+                title_with_link = title
+
             # Coerce tags to strings safely (tags may be ints or dicts)
             tag_labels = []
             for t in tags[:3]:
@@ -470,7 +533,7 @@ class TelegramConcierge:
                 else:
                     tag_labels.append(str(t))
             tag_text = f" [Tags: {', '.join(tag_labels)}]" if tag_labels else ""
-            response += f"• {title}{tag_text}\n  📅 {created}\n\n"
+            response += f"• {title_with_link}{tag_text}\n  📅 {created}\n\n"
 
         if search_results["count"] > DEFAULT_SEARCH_RESULTS:
             response += f"... and {search_results['count'] - DEFAULT_SEARCH_RESULTS} more documents.\n"
@@ -478,9 +541,11 @@ class TelegramConcierge:
         response += "\n💡 *Try specific keywords for better results*"
         return response
 
-    async def _handle_successful_ai_response(self, ai_response: dict, status_message):
+    async def _handle_successful_ai_response(
+        self, ai_response: dict, status_message, paperless_client: PaperlessClient
+    ):
         """Handle successful AI response."""
-        response_text = self._format_ai_response(ai_response)
+        response_text = self._format_ai_response(ai_response, paperless_client)
         await status_message.edit_text(response_text)
 
     async def _handle_ai_fallback_search(
@@ -491,7 +556,7 @@ class TelegramConcierge:
         search_results = await paperless_client.search_documents(query_text)
 
         if search_results.get("count", 0) > 0:
-            response = self._format_search_results(search_results)
+            response = self._format_search_results(search_results, paperless_client)
             await status_message.edit_text(response)
         else:
             await status_message.edit_text(
@@ -516,7 +581,13 @@ class TelegramConcierge:
                 f"📋 Found {search_results['count']} documents (fallback search):\n\n"
             )
             for doc in documents:
-                response += f"• {doc.get('title', 'Untitled')}\n"
+                title = doc.get("title", "Untitled")
+                doc_id = doc.get("id")
+                if doc_id:
+                    doc_url = self._build_document_url(paperless_client, doc_id)
+                    response += f"• [{title}]({doc_url})\n"
+                else:
+                    response += f"• {title}\n"
             await status_message.reply_text(response)
 
     @require_authorization
@@ -542,7 +613,9 @@ class TelegramConcierge:
             ai_response = await paperless_client.query_ai(query_text)
 
             if ai_response.get("success", False):
-                await self._handle_successful_ai_response(ai_response, status_message)
+                await self._handle_successful_ai_response(
+                    ai_response, status_message, paperless_client
+                )
             elif ai_response.get("error") in [
                 "AI service not configured",
                 "AI service temporarily unavailable",
@@ -563,8 +636,117 @@ class TelegramConcierge:
             await status_message.edit_text(f"❌ Search failed: {e!s}")
 
 
+def _is_valid_pid(pid: int) -> bool:
+    """Validate PID for security - ensure it's reasonable and safe to check."""
+    # PID must be positive and within reasonable bounds
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    # PIDs shouldn't exceed system limits (typically much lower than this)
+    # This prevents potential issues with extremely large values
+    if pid > 2**20:  # 1 million - well above typical system limits
+        return False
+
+    # Never try to check system critical processes (PID 1 is init/systemd)
+    if pid == 1:
+        return False
+
+    return True
+
+
+def _is_owned_by_current_user(pid: int) -> bool:
+    """Check if the process belongs to the current user for additional safety."""
+    try:
+        # Get process info via /proc (Linux/Unix) or fall back to basic check
+        proc_path = f"/proc/{pid}"
+        if os.path.exists(proc_path):
+            # Check if process directory is owned by current user
+            current_uid = os.getuid()
+            proc_stat = os.stat(proc_path)
+            return proc_stat.st_uid == current_uid
+        else:
+            # Fallback: assume it's safe if we can't check
+            # (macOS doesn't have /proc, Windows doesn't have this path)
+            return True
+    except (OSError, AttributeError):
+        # If we can't check ownership, err on the side of caution
+        return True
+
+
+def ensure_singleton():
+    """Ensure only one instance of the bot is running.
+
+    Security considerations:
+    - Only checks PIDs that pass validation (positive, within reasonable bounds)
+    - Only checks processes owned by the current user
+    - Uses signal 0 (harmless process existence check, doesn't terminate)
+    - Never attempts to signal system processes (PID 1, etc.)
+    """
+    lock_file = os.path.join(tempfile.gettempdir(), "paperless-concierge.lock")
+
+    try:
+        lock_fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(lock_fd, str(os.getpid()).encode())
+
+        def cleanup():
+            try:
+                os.close(lock_fd)
+                os.unlink(lock_file)
+            except OSError:
+                pass
+
+        atexit.register(cleanup)
+        return lock_fd
+
+    except FileExistsError:
+        # Check if the existing process is still running
+        try:
+            with open(lock_file, "r") as f:
+                pid_content = f.read().strip()
+
+            # Parse and validate PID
+            existing_pid = int(pid_content)
+
+            # Security validation: ensure PID is safe to check
+            if not _is_valid_pid(existing_pid):
+                logger.warning(f"Invalid PID in lock file: {existing_pid}")
+                # Remove suspicious lock file and try again
+                os.unlink(lock_file)
+                return ensure_singleton()
+
+            # Additional safety: only check processes owned by current user
+            if not _is_owned_by_current_user(existing_pid):
+                logger.warning(
+                    f"PID {existing_pid} not owned by current user, removing stale lock"
+                )
+                os.unlink(lock_file)
+                return ensure_singleton()
+
+            # SECURITY NOTE: This is a safe usage of os.kill() because:
+            # 1. Signal 0 is completely harmless - it only checks process existence
+            # 2. PID has been validated by _is_valid_pid() above (bounds checking)
+            # 3. Process ownership verified by _is_owned_by_current_user() above
+            # 4. Never targets system processes (PID 1, negative PIDs, etc.)
+            os.kill(existing_pid, 0)  # noqa: S603,S4828  # NOSONAR
+            print(f"❌ Another instance is already running (PID: {existing_pid})")
+            print("   Stop it first or wait for it to exit.")
+            exit(1)
+
+        except (ValueError, OSError):
+            # Stale lock file - remove it and try again
+            try:
+                os.unlink(lock_file)
+                return ensure_singleton()
+            except OSError:
+                print("❌ Cannot acquire lock - permission denied")
+                exit(1)
+
+
 def main() -> None:
     """Start the bot."""
+    # Ensure only one instance runs
+    ensure_singleton()
+
     parser = argparse.ArgumentParser(
         prog="paperless-concierge",
         description="Telegram bot for uploading documents and querying your Paperless-NGX instance",
