@@ -11,7 +11,6 @@ Run with any of:
 """
 
 import os
-import asyncio
 import inspect
 import sys
 import unittest
@@ -165,30 +164,6 @@ def make_callback_query(
     return q
 
 
-# -------------------------------------------------------------------------
-# Best-effort async cleanup for objects that may hold aiohttp sessions, etc.
-# -------------------------------------------------------------------------
-async def _async_close(obj):
-    """Recursively close common async resources to avoid unclosed sockets."""
-    if obj is None:
-        return
-    # Try typical async/sync closers
-    for name in ("aclose", "close"):
-        fn = getattr(obj, name, None)
-        if callable(fn):
-            res = fn()
-            if inspect.isawaitable(res):
-                try:
-                    await res
-                except Exception:
-                    pass
-    # Recurse into common attributes that often hold sessions/clients
-    for attr in ("session", "client", "paperless_client"):
-        child = getattr(obj, attr, None)
-        if child is not None and child is not obj:
-            await _async_close(child)
-
-
 # =============================================================================
 # Tests (unittest, no custom prints)
 # =============================================================================
@@ -227,9 +202,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
                     bot.upload_tasks[update.message.chat_id]["task_id"],
                     "upload-task-123",
                 )
-            # Ensure underlying HTTP resources are closed
-            await _async_close(bot)
-            await asyncio.sleep(0)
+            await bot.aclose()
 
     async def test_document_search_workflow(self):
         """Basic search via HTTP."""
@@ -264,8 +237,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            await _async_close(bot)
-            await asyncio.sleep(0)
+            await bot.aclose()
 
     async def test_ai_query_workflow(self):
         """AI query path with fallback search."""
@@ -301,9 +273,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            # This test was leaking a socket; close any sessions the bot holds.
-            await _async_close(bot)
-            await asyncio.sleep(0)
+            await bot.aclose()
 
     async def test_document_status_check_workflow(self):
         """Button callback → task status check."""
@@ -333,8 +303,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
                 self.assertIn(
                     "successfully", mock_query.edit_message_text.call_args[0][0]
                 )
-            await _async_close(bot)
-            await asyncio.sleep(0)
+                await bot.aclose()
 
     async def test_document_tracker_workflow(self):
         """Basic DocumentTracker plumbing."""
@@ -398,9 +367,12 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
             except Exception:
                 pass
 
-        # Close any underlying sessions from the direct client use.
-        await _async_close(client)
-        await asyncio.sleep(0)
+        if hasattr(client, "aclose"):
+            await client.aclose()
+        else:
+            res = getattr(client, "close", lambda: None)()
+            if inspect.isawaitable(res):
+                await res
 
     async def test_error_handling_workflows(self):
         """HTTP error paths (e.g., 404 search)."""
@@ -419,8 +391,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            await _async_close(bot)
-            await asyncio.sleep(0)
+            await bot.aclose()
 
 
 if __name__ == "__main__":

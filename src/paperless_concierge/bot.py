@@ -3,10 +3,13 @@ import logging
 import os
 import tempfile
 import uuid
+import inspect
+import asyncio
 from typing import Optional
 
 import aiohttp
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -66,21 +69,84 @@ class TelegramConcierge:
     def __init__(self, document_tracker=None):
         self.upload_tasks = {}
         self.document_tracker = document_tracker
+        # Cache per-user PaperlessClient instances (avoid per-request sessions)
+        self._clients = {}
+        self._client_keys = {}
 
     def get_paperless_client(self, user_id: int) -> PaperlessClient:
-        """Get a PaperlessClient configured for the specific user."""
+        """Get (and cache) a PaperlessClient configured for the specific user.
+        Reuses a single client per user to prevent leaking aiohttp sessions.
+        If the user's config changes, the old client is closed and replaced.
+        """
         user_manager = get_user_manager()
         user_config = user_manager.get_user_config(user_id)
 
         if not user_config:
             raise ValueError(f"No configuration found for user {user_id}")
 
-        return PaperlessClient(
+        key = (
+            user_config.paperless_url,
+            user_config.paperless_token,
+            user_config.paperless_ai_url,
+            user_config.paperless_ai_token,
+        )
+
+        existing = self._clients.get(user_id)
+        if existing is not None and self._client_keys.get(user_id) == key:
+            return existing
+
+        # Close and replace if config changed or no client yet
+        old_client = self._clients.get(user_id)
+        if old_client is not None and self._client_keys.get(user_id) != key:
+            for closer in ("aclose", "close"):
+                fn = getattr(old_client, closer, None)
+                if callable(fn):
+                    try:
+                        res = fn()
+                        if inspect.isawaitable(res):
+                            try:
+                                loop = asyncio.get_running_loop()
+                                loop.create_task(res)
+                            except RuntimeError:
+                                # No running loop; defer to global shutdown via aclose()
+                                pass
+                    except (aiohttp.ClientError, RuntimeError, OSError) as e:
+                        logger.warning(
+                            "Failed to close previous PaperlessClient for user %s: %s",
+                            user_id,
+                            e,
+                            exc_info=True,
+                        )
+                    break
+
+        client = PaperlessClient(
             paperless_url=user_config.paperless_url,
             paperless_token=user_config.paperless_token,
             paperless_ai_url=user_config.paperless_ai_url,
             paperless_ai_token=user_config.paperless_ai_token,
         )
+        self._clients[user_id] = client
+        self._client_keys[user_id] = key
+        return client
+
+    async def aclose(self):
+        """Close all cached PaperlessClient instances to avoid socket leaks."""
+        for client in list(self._clients.values()):
+            for closer in ("aclose", "close"):
+                fn = getattr(client, closer, None)
+                if callable(fn):
+                    try:
+                        res = fn()
+                        if inspect.isawaitable(res):
+                            await res
+                    except (aiohttp.ClientError, RuntimeError, OSError) as e:
+                        logger.debug(
+                            "Error while closing PaperlessClient during aclose: %s",
+                            e,
+                            exc_info=True,
+                        )
+        self._clients.clear()
+        self._client_keys.clear()
 
     @require_authorization
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -230,7 +296,10 @@ class TelegramConcierge:
             try:
                 file = await file_obj.get_file()
             except Exception as e:
-                raise FileDownloadError(f"Failed to download file from Telegram: {e}")
+                # Normalize all download failures to FileDownloadError
+                raise FileDownloadError(
+                    f"Failed to download file from Telegram: {e}"
+                ) from e
 
             # Create temporary file
             temp_fd, temp_file_path = tempfile.mkstemp(suffix=f"_{original_filename}")
@@ -288,20 +357,18 @@ class TelegramConcierge:
                 logger.error(f"Upload error: {e!s}")
                 await status_message.edit_text(f"❌ Upload failed: {e!s}")
 
-            # Clean up temporary file
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-
-        except TelegramBotError as e:
+        except (FileDownloadError, TelegramBotError) as e:
             logger.error(f"Document handling error: {e!s}")
             await message.reply_text(f"❌ Error processing file: {e!s}")
-        except Exception as e:
-            # Catch any unexpected errors
-            logger.error(f"Unexpected error in document handling: {e!s}")
+        except (TelegramError, aiohttp.ClientError, OSError) as e:
+            logger.error(f"Unexpected I/O error in document handling: {e!s}")
             await message.reply_text(
-                "❌ An unexpected error occurred. Please try again."
+                "❌ A network or file error occurred. Please try again."
             )
+        finally:
+            # Clean up temporary file
+            if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
     @require_authorization
     async def check_status(
@@ -493,6 +560,9 @@ class TelegramConcierge:
         except (aiohttp.ClientError, ValueError, KeyError, AttributeError) as e:
             logger.error(f"Query error: {e!s}")
             await status_message.edit_text(f"❌ Search failed: {e!s}")
+        except Exception as e:  # Last-resort guard for unexpected client errors
+            logger.error("Unexpected error during query: %s", e, exc_info=True)
+            await status_message.edit_text(f"❌ Search failed: {e!s}")
 
 
 def main() -> None:
@@ -550,7 +620,10 @@ For configuration, set environment variables:
     async def post_shutdown(application):
         """Stop document tracker on shutdown"""
         await document_tracker.stop_tracking()
-        logger.info("Document tracker stopped")
+        try:
+            await concierge.aclose()
+        finally:
+            logger.info("Document tracker stopped and clients closed")
 
     application.post_init = post_init
     application.post_shutdown = post_shutdown
