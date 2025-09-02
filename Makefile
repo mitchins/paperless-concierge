@@ -41,7 +41,7 @@ setup:
 
 install:
 	@echo "📦 Installing dependencies..."
-	pip install -r requirements.txt
+	pip install -e .
 
 test:
 	@echo "🧪 Running all tests..."
