@@ -202,7 +202,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
                     bot.upload_tasks[update.message.chat_id]["task_id"],
                     "upload-task-123",
                 )
-            await bot.aclose()
+                await bot.aclose()
 
     async def test_document_search_workflow(self):
         """Basic search via HTTP."""
@@ -237,7 +237,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            await bot.aclose()
+                await bot.aclose()
 
     async def test_ai_query_workflow(self):
         """AI query path with fallback search."""
@@ -367,12 +367,12 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
             except Exception:
                 pass
 
-        if hasattr(client, "aclose"):
-            await client.aclose()
-        else:
-            res = getattr(client, "close", lambda: None)()
-            if inspect.isawaitable(res):
-                await res
+            if hasattr(client, "aclose"):
+                await client.aclose()
+            else:
+                res = getattr(client, "close", lambda: None)()
+                if inspect.isawaitable(res):
+                    await res
 
     async def test_error_handling_workflows(self):
         """HTTP error paths (e.g., 404 search)."""
@@ -391,7 +391,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            await bot.aclose()
+                await bot.aclose()
 
 
 if __name__ == "__main__":

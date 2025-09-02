@@ -306,6 +306,7 @@ async def test_handle_document_photo():
             # Task should be stored in the nested dictionary
             assert bot.upload_tasks.get(12345) is not None
             assert bot.upload_tasks[12345]["task_id"] == "task-123"
+            await bot.aclose()
 
 
 async def test_handle_document_document_file_uploaded_success():
@@ -396,6 +397,7 @@ async def test_query_documents():
 
             # Verify search was performed
             update.message.reply_text.assert_called()
+            await bot.aclose()
 
 
 async def test_query_documents_ai_success():
@@ -525,6 +527,7 @@ async def test_check_status():
             mock_query.edit_message_text.assert_called_once()
             call_args = mock_query.edit_message_text.call_args[0][0]
             assert "successfully" in call_args
+            await bot.aclose()
 
 
 async def test_check_status_failure_and_processing():
@@ -554,23 +557,30 @@ async def test_check_status_failure_and_processing():
         update.callback_query = mock_query
         context = Mock()
 
-        # FAILURE path
-        client = Mock()
-        client.get_document_status = AsyncMock(
-            return_value={"status": "FAILURE", "result": "Boom"}
-        )
+    # FAILURE path
+    client = Mock()
+    client.get_document_status = AsyncMock(
+        return_value={"status": "FAILURE", "result": "Boom"}
+    )
+    with patch(
+        "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
+    ):
         with patch.object(bot, "get_paperless_client", return_value=client):
             await bot.check_status(update, context)
             msg = mock_query.edit_message_text.call_args[0][0]
             assert "failed" in msg.lower()
 
-        # PROCESSING path
-        mock_query.edit_message_text.reset_mock()
-        client.get_document_status = AsyncMock(return_value={"status": "PENDING"})
+    # PROCESSING path
+    mock_query.edit_message_text.reset_mock()
+    client.get_document_status = AsyncMock(return_value={"status": "PENDING"})
+    with patch(
+        "paperless_concierge.bot.get_user_manager", return_value=mock_user_manager
+    ):
         with patch.object(bot, "get_paperless_client", return_value=client):
             await bot.check_status(update, context)
             msg = mock_query.edit_message_text.call_args[0][0]
             assert "processing" in msg.lower()
+    await bot.aclose()
 
 
 async def test_error_handling():
