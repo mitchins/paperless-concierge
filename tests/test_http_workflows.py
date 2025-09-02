@@ -273,7 +273,7 @@ class HTTPWorkflowTests(IsolatedAsyncioTestCase):
 
                 await bot.query_documents(update, context)
                 update.message.reply_text.assert_called()
-            await bot.aclose()
+                await bot.aclose()
 
     async def test_document_status_check_workflow(self):
         """Button callback → task status check."""

@@ -145,6 +145,8 @@ class TelegramConcierge:
                             e,
                             exc_info=True,
                         )
+        # Allow aiohttp/asyncio to finalize sockets/connectors
+        await asyncio.sleep(0)
         self._clients.clear()
         self._client_keys.clear()
 
