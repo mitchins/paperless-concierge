@@ -74,13 +74,8 @@ class TelegramConcierge:
         self._client_keys = {}
 
     def get_paperless_client(self, user_id: int) -> PaperlessClient:
-        """Get (and cache) a PaperlessClient configured for the specific user.
-        Reuses a single client per user.
-        If the user's config changes, the old client is closed and replaced.
-        """
-        user_manager = get_user_manager()
-        user_config = user_manager.get_user_config(user_id)
-
+        """Return a cached PaperlessClient for a user, creating/replacing as needed."""
+        user_config = get_user_manager().get_user_config(user_id)
         if not user_config:
             raise ValueError(f"No configuration found for user {user_id}")
 
@@ -91,33 +86,11 @@ class TelegramConcierge:
             user_config.paperless_ai_token,
         )
 
-        existing = self._clients.get(user_id)
-        if existing is not None and self._client_keys.get(user_id) == key:
-            return existing
+        cached = self._clients.get(user_id)
+        if cached and self._client_keys.get(user_id) == key:
+            return cached
 
-        # Close and replace if config changed or no client yet
-        old_client = self._clients.get(user_id)
-        if old_client is not None and self._client_keys.get(user_id) != key:
-            for closer in ("aclose", "close"):
-                fn = getattr(old_client, closer, None)
-                if callable(fn):
-                    try:
-                        res = fn()
-                        if inspect.isawaitable(res):
-                            try:
-                                loop = asyncio.get_running_loop()
-                                loop.create_task(res)
-                            except RuntimeError:
-                                # No running loop; defer to global shutdown via aclose()
-                                pass
-                    except (httpx.HTTPError, RuntimeError, OSError) as e:
-                        logger.warning(
-                            "Failed to close previous PaperlessClient for user %s: %s",
-                            user_id,
-                            e,
-                            exc_info=True,
-                        )
-                    break
+        self._close_previous_client(user_id, key)
 
         client = PaperlessClient(
             paperless_url=user_config.paperless_url,
@@ -128,6 +101,31 @@ class TelegramConcierge:
         self._clients[user_id] = client
         self._client_keys[user_id] = key
         return client
+
+    def _close_previous_client(self, user_id: int, new_key: tuple) -> None:
+        old = self._clients.get(user_id)
+        if not old or self._client_keys.get(user_id) == new_key:
+            return
+        for closer in ("aclose", "close"):
+            fn = getattr(old, closer, None)
+            if not callable(fn):
+                continue
+            try:
+                res = fn()
+                if inspect.isawaitable(res):
+                    try:
+                        asyncio.get_running_loop().create_task(res)
+                    except RuntimeError:
+                        # No running loop; ignore — aclose() will handle later
+                        pass
+            except (httpx.HTTPError, RuntimeError, OSError) as e:
+                logger.warning(
+                    "Failed to close previous PaperlessClient for user %s: %s",
+                    user_id,
+                    e,
+                    exc_info=True,
+                )
+            break
 
     async def aclose(self):
         """Close all cached PaperlessClient instances."""
