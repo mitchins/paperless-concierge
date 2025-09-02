@@ -1,3 +1,14 @@
+"""
+Telegram bot for Paperless-NGX document management.
+
+SECURITY NOTE: This module uses os.kill() with signal 0 for process existence checking
+in the singleton enforcement functionality. This usage is secure because:
+- Signal 0 is completely harmless (existence check only, never kills)
+- PIDs are validated before use (bounds checking, type validation)
+- Process ownership is verified (only checks processes owned by current user)
+- System processes are explicitly excluded (PID 1, negative PIDs, etc.)
+"""
+
 import argparse
 import logging
 import os
@@ -692,9 +703,12 @@ def ensure_singleton():
                 os.unlink(lock_file)
                 return ensure_singleton()
 
-            # Safe to check if process exists (signal 0 doesn't harm the process)
-            # Security: PID has been validated and ownership checked above
-            os.kill(existing_pid, 0)  # noqa: S603  # PID validated, signal 0 is safe
+            # SECURITY NOTE: This is a safe usage of os.kill() because:
+            # 1. Signal 0 is completely harmless - it only checks process existence
+            # 2. PID has been validated by _is_valid_pid() above (bounds checking)
+            # 3. Process ownership verified by _is_owned_by_current_user() above
+            # 4. Never targets system processes (PID 1, negative PIDs, etc.)
+            os.kill(existing_pid, 0)  # noqa: S603,S4828  # NOSONAR
             print(f"❌ Another instance is already running (PID: {existing_pid})")
             print("   Stop it first or wait for it to exit.")
             exit(1)
