@@ -65,6 +65,23 @@ async def test_get_document_status_ok(httpx_mock):
     assert data["document_id"] == 42
 
 
+async def test_get_document_status_not_found(httpx_mock):
+    c = PaperlessClient(paperless_url="http://test:8000", paperless_token="tkn")
+
+    httpx_mock.add_response(
+        method="GET",
+        url="http://test:8000/api/tasks/missing/",
+        status_code=404,
+        json={"detail": "Not found"},
+    )
+
+    import pytest
+    from paperless_concierge.exceptions import PaperlessTaskNotFoundError
+
+    with pytest.raises(PaperlessTaskNotFoundError):
+        await c.get_document_status("missing")
+
+
 async def test_search_documents_ok(httpx_mock):
     c = PaperlessClient(paperless_url="http://test:8000", paperless_token="tkn")
 
