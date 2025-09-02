@@ -131,7 +131,7 @@ class TelegramConcierge:
 
     async def aclose(self):
         """Close all cached PaperlessClient instances."""
-        for client in list(self._clients.values()):
+        for client in self._clients.values():
             for closer in ("aclose", "close"):
                 fn = getattr(client, closer, None)
                 if callable(fn):
@@ -271,6 +271,58 @@ class TelegramConcierge:
             reply_markup=reply_markup,
         )
 
+    async def _download_to_temp(self, file_obj, original_filename: str) -> str:
+        try:
+            file = await file_obj.get_file()
+        except Exception as e:
+            raise FileDownloadError(
+                f"Failed to download file from Telegram: {e}"
+            ) from e
+        temp_fd, temp_file_path = tempfile.mkstemp(suffix=f"_{original_filename}")
+        os.close(temp_fd)
+        await file.download_to_drive(temp_file_path)
+        return temp_file_path
+
+    async def _upload_and_track(
+        self,
+        user_id: int,
+        temp_file_path: str,
+        original_filename: str,
+        status_message,
+        message,
+        tracking_uuid: str,
+    ) -> None:
+        paperless_client = self.get_paperless_client(user_id)
+        result = await paperless_client.upload_document(
+            temp_file_path, title=original_filename
+        )
+        task_id = self._extract_task_id(result)
+
+        if not task_id:
+            await status_message.edit_text(
+                f"✅ {original_filename} uploaded successfully!"
+            )
+            return
+
+        try:
+            logger.info(f"🔍 Immediately checking task status for {task_id}")
+            immediate_status = await paperless_client.get_document_status(task_id)
+            logger.info(f"🔍 Immediate task status: {immediate_status}")
+        except (PaperlessTaskNotFoundError, PaperlessAPIError, httpx.HTTPError) as e:
+            logger.warning(f"Could not get immediate task status: {e}")
+            immediate_status = None
+
+        await self._setup_tracking_and_notification(
+            task_id,
+            user_id,
+            original_filename,
+            status_message,
+            paperless_client,
+            message,
+            tracking_uuid,
+            immediate_status,
+        )
+
     @require_authorization
     async def handle_document(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -280,7 +332,6 @@ class TelegramConcierge:
         user_id = message.from_user.id
         tracking_uuid = str(uuid.uuid4())
 
-        # Determine if it's a photo or document
         file_obj, original_filename = self._get_file_info(message, tracking_uuid)
         if not file_obj:
             await message.reply_text(
@@ -288,76 +339,19 @@ class TelegramConcierge:
             )
             return
 
+        status_message = await message.reply_text("📤 Uploading to Paperless-NGX...")
+        temp_file_path = None
         try:
-            # Send initial confirmation
-            status_message = await message.reply_text("📤 Uploading to Paperless-NGX...")
-
-            # Download the file
-            try:
-                file = await file_obj.get_file()
-            except Exception as e:
-                # Normalize all download failures to FileDownloadError
-                raise FileDownloadError(
-                    f"Failed to download file from Telegram: {e}"
-                ) from e
-
-            # Create temporary file
-            temp_fd, temp_file_path = tempfile.mkstemp(suffix=f"_{original_filename}")
-            os.close(temp_fd)  # Close the file descriptor, we only need the path
-            await file.download_to_drive(temp_file_path)
-
-            # Upload to Paperless-NGX using user-specific client
-            try:
-                paperless_client = self.get_paperless_client(user_id)
-                result = await paperless_client.upload_document(
-                    temp_file_path, title=original_filename
-                )
-
-                # Extract task ID from upload result
-                task_id = self._extract_task_id(result)
-
-                if task_id:
-                    # Immediately check task status to get document ID before it's cleaned up
-                    try:
-                        logger.info(f"🔍 Immediately checking task status for {task_id}")
-                        immediate_status = await paperless_client.get_document_status(
-                            task_id
-                        )
-                        logger.info(f"🔍 Immediate task status: {immediate_status}")
-                    except (
-                        PaperlessTaskNotFoundError,
-                        PaperlessAPIError,
-                        httpx.HTTPError,
-                    ) as e:
-                        # Log warning but don't fail - task might not be ready yet
-                        logger.warning(f"Could not get immediate task status: {e}")
-                        immediate_status = None
-
-                    await self._setup_tracking_and_notification(
-                        task_id,
-                        user_id,
-                        original_filename,
-                        status_message,
-                        paperless_client,
-                        message,
-                        tracking_uuid,
-                        immediate_status,
-                    )
-                else:
-                    await status_message.edit_text(
-                        f"✅ {original_filename} uploaded successfully!"
-                    )
-
-            except (
-                PaperlessUploadError,
-                PaperlessAPIError,
-                httpx.HTTPError,
-                OSError,
-            ) as e:
-                logger.error(f"Upload error: {e!s}")
-                await status_message.edit_text(f"❌ Upload failed: {e!s}")
-
-        except (FileDownloadError, TelegramBotError) as e:
+            temp_file_path = await self._download_to_temp(file_obj, original_filename)
+            await self._upload_and_track(
+                user_id,
+                temp_file_path,
+                original_filename,
+                status_message,
+                message,
+                tracking_uuid,
+            )
+        except TelegramBotError as e:
             logger.error(f"Document handling error: {e!s}")
             await message.reply_text(f"❌ Error processing file: {e!s}")
         except (TelegramError, httpx.HTTPError, OSError) as e:
@@ -366,8 +360,7 @@ class TelegramConcierge:
                 "❌ A network or file error occurred. Please try again."
             )
         finally:
-            # Clean up temporary file
-            if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+            if temp_file_path and os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
 
     @require_authorization

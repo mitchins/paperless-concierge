@@ -44,12 +44,15 @@ class PaperlessClient:
         """Upload a document to Paperless-NGX"""
         url = f"{self.base_url}/api/documents/post_document/"
 
-        # Prepare multipart form data
+        # Prepare multipart form data (read file asynchronously)
         filename = file_path.split("/")[-1]
 
         # Use httpx's preferred file format: (filename, file_content, content_type)
-        with open(file_path, "rb") as f:
-            files = {"document": (filename, f.read(), "application/octet-stream")}
+        import aiofiles  # lightweight async file IO
+
+        async with aiofiles.open(file_path, "rb") as f:
+            file_content = await f.read()
+        files = {"document": (filename, file_content, "application/octet-stream")}
 
         data = {}
         if title:

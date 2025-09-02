@@ -16,7 +16,6 @@ sys.modules["aiohttp"] = MagicMock()
 sys.modules["telegram"] = MagicMock()
 sys.modules["telegram.ext"] = MagicMock()
 sys.modules["diskcache"] = MagicMock()
-sys.modules["aiofiles"] = MagicMock()
 sys.modules["python-dotenv"] = MagicMock()
 
 

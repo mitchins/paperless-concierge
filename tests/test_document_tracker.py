@@ -16,7 +16,6 @@ sys.modules["aiohttp"] = MagicMock()
 sys.modules["telegram"] = MagicMock()
 sys.modules["telegram.ext"] = MagicMock()
 sys.modules["diskcache"] = MagicMock()
-sys.modules["aiofiles"] = MagicMock()
 sys.modules["python-dotenv"] = MagicMock()
 
 
@@ -90,6 +89,17 @@ async def run_document_tracker_tests():
     print(f"DocumentTracker Tests: {passed}/{total} passed")
 
     return passed == total
+
+
+async def test_tracker_start_stop():
+    from paperless_concierge.document_tracker import DocumentTracker
+
+    mock_app = Mock()
+    tracker = DocumentTracker(mock_app)
+    await tracker.start_tracking()
+    assert tracker.background_task is not None
+    await tracker.stop_tracking()
+    assert tracker.background_task is None or tracker.background_task.done()
 
 
 if __name__ == "__main__":

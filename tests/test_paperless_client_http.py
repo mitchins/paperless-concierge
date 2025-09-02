@@ -105,3 +105,28 @@ async def test_query_ai_success_parsing(httpx_mock):
     assert parsed["success"] is True
     assert parsed["answer"] == "Hello"
     assert parsed["documents_found"][0]["title"] == "D"
+
+
+async def test_trigger_ai_processing_success(httpx_mock):
+    c = PaperlessClient(
+        paperless_url="http://test:8000",
+        paperless_token="t",
+        paperless_ai_url="http://ai:8080",
+        paperless_ai_token="k",
+    )
+
+    httpx_mock.add_response(
+        method="POST",
+        url="http://ai:8080/api/scan/now",
+        status_code=200,
+        json={"ok": True},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url="http://ai:8080/api/processing-status",
+        status_code=200,
+        json={"lastProcessed": {"documentId": 123, "title": "Doc"}},
+    )
+
+    ok = await c.trigger_ai_processing(123)
+    assert ok is True
