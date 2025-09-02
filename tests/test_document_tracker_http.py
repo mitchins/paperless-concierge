@@ -137,3 +137,37 @@ async def test_is_document_ready_recent_docs_error(httpx_mock):
 
     ok = await tracker._is_document_ready(doc)
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_is_document_ready_not_in_recent_list(httpx_mock):
+    from paperless_concierge.document_tracker import DocumentTracker, TrackedDocument
+
+    tracker = DocumentTracker(Mock())
+    doc = TrackedDocument(
+        task_id="td",
+        user_id=1,
+        chat_id=1,
+        filename="f.pdf",
+        upload_time=__import__("datetime").datetime.now(),
+        paperless_client=Mock(base_url="http://test:8000", token="tkn"),
+        document_id=13,
+    )
+
+    # First document GET is OK with content/created
+    httpx_mock.add_response(
+        method="GET",
+        url="http://test:8000/api/documents/13/",
+        json={"content": "text", "created": "2024-01-01T00:00:00Z"},
+        status_code=200,
+    )
+    # Recent documents exclude id=13
+    httpx_mock.add_response(
+        method="GET",
+        url="http://test:8000/api/documents/?page=1&page_size=50&ordering=-created&truncate_content=true",
+        status_code=200,
+        json={"results": [{"id": 99}]},
+    )
+
+    ok = await tracker._is_document_ready(doc)
+    assert ok is False
