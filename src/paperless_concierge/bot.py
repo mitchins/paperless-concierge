@@ -445,46 +445,65 @@ class TelegramConcierge:
         """Format AI response into readable text."""
         response_text = f"🤖 **AI Assistant:**\n{ai_response['answer']}\n"
 
-        # Add structured information if available
-        if ai_response.get("documents_found"):
-            response_text += (
-                f"\n📄 **Referenced Documents:** {len(ai_response['documents_found'])}\n"
-            )
-            for doc in ai_response["documents_found"][:3]:  # Show top 3
-                doc_title = doc.get("title", doc.get("name", "Unknown"))
-                doc_id = doc.get("id")
-                if doc_id and paperless_client:
-                    doc_url = self._build_document_url(paperless_client, doc_id)
-                    response_text += f"• [{doc_title}]({doc_url})\n"
-                else:
-                    response_text += f"• {doc_title}\n"
-
-        if ai_response.get("tags_found"):
-            tags = ai_response["tags_found"][:5]  # Show top 5 tags
-            # Convert all tags to strings (they might be integers, dicts, or strings)
-            tag_strs = []
-            for tag in tags:
-                if isinstance(tag, dict):
-                    tag_strs.append(str(tag.get("name") or tag.get("label") or tag))
-                else:
-                    tag_strs.append(str(tag))
-            response_text += f"\n🏷️ **Related Tags:** {', '.join(tag_strs)}\n"
-
-        if ai_response.get("confidence"):
-            confidence = (
-                round(float(ai_response["confidence"]) * 100)
-                if isinstance(ai_response["confidence"], (int, float))
-                else ai_response["confidence"]
-            )
-            response_text += f"\n📊 **Confidence:** {confidence}%\n"
-
-        if ai_response.get("sources"):
-            response_text += (
-                f"\n📚 **Sources:** {len(ai_response['sources'])} documents\n"
-            )
+        response_text += self._format_ai_documents(ai_response, paperless_client)
+        response_text += self._format_ai_tags(ai_response)
+        response_text += self._format_ai_confidence(ai_response)
+        response_text += self._format_ai_sources(ai_response)
 
         response_text += "\n💡 *Based on your Paperless-NGX documents*"
         return response_text
+
+    def _format_ai_documents(
+        self, ai_response: dict, paperless_client: PaperlessClient = None
+    ) -> str:
+        """Format documents section of AI response."""
+        if not ai_response.get("documents_found"):
+            return ""
+
+        response_text = (
+            f"\n📄 **Referenced Documents:** {len(ai_response['documents_found'])}\n"
+        )
+        for doc in ai_response["documents_found"][:3]:  # Show top 3
+            doc_title = doc.get("title", doc.get("name", "Unknown"))
+            doc_id = doc.get("id")
+            if doc_id and paperless_client:
+                doc_url = self._build_document_url(paperless_client, doc_id)
+                response_text += f"• [{doc_title}]({doc_url})\n"
+            else:
+                response_text += f"• {doc_title}\n"
+        return response_text
+
+    def _format_ai_tags(self, ai_response: dict) -> str:
+        """Format tags section of AI response."""
+        if not ai_response.get("tags_found"):
+            return ""
+
+        tags = ai_response["tags_found"][:5]  # Show top 5 tags
+        tag_strs = []
+        for tag in tags:
+            if isinstance(tag, dict):
+                tag_strs.append(str(tag.get("name") or tag.get("label") or tag))
+            else:
+                tag_strs.append(str(tag))
+        return f"\n🏷️ **Related Tags:** {', '.join(tag_strs)}\n"
+
+    def _format_ai_confidence(self, ai_response: dict) -> str:
+        """Format confidence section of AI response."""
+        if not ai_response.get("confidence"):
+            return ""
+
+        confidence = (
+            round(float(ai_response["confidence"]) * 100)
+            if isinstance(ai_response["confidence"], (int, float))
+            else ai_response["confidence"]
+        )
+        return f"\n📊 **Confidence:** {confidence}%\n"
+
+    def _format_ai_sources(self, ai_response: dict) -> str:
+        """Format sources section of AI response."""
+        if not ai_response.get("sources"):
+            return ""
+        return f"\n📚 **Sources:** {len(ai_response['sources'])} documents\n"
 
     def _format_search_results(
         self, search_results: dict, paperless_client: PaperlessClient = None
@@ -713,7 +732,7 @@ def ensure_singleton():
             print("   Stop it first or wait for it to exit.")
             exit(1)
 
-        except (ValueError, ProcessLookupError, OSError):
+        except (ValueError, OSError):
             # Stale lock file - remove it and try again
             try:
                 os.unlink(lock_file)
