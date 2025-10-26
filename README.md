@@ -36,6 +36,25 @@ flowchart TD
 
 ## Setup
 
+### Docker (Recommended)
+
+1. **Pull the image**:
+   ```bash
+   docker pull ghcr.io/<YOUR_USERNAME>/paperless-ngx-telegram-concierge:latest
+   ```
+
+2. **Add to your Paperless stack** - See [Docker Guide](docs/DOCKER.md) for full integration instructions
+
+3. **Configure environment variables** in your `stack.env`:
+   ```bash
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   AUTHORIZED_USERS=your_telegram_id
+   PAPERLESS_URL=http://webserver:8000
+   PAPERLESS_TOKEN=your_paperless_token
+   ```
+
+### Python Package
+
 1. **Quick Setup**:
    ```bash
    python setup.py

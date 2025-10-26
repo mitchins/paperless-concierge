@@ -1,0 +1,33 @@
+# Example Docker Compose service configuration for Paperless-NGX Telegram Concierge
+#
+# Add this service to your existing Paperless stack's docker-compose.yml file
+# alongside your webserver, db, and broker services.
+
+services:
+  telegram-concierge:
+    image: ghcr.io/<YOUR_GITHUB_USERNAME>/paperless-ngx-telegram-concierge:latest
+    container_name: paperless-telegram-concierge
+    restart: unless-stopped
+    depends_on:
+      - webserver  # Your Paperless-NGX webserver service
+    networks:
+      default: {}
+      docker_vlan3:
+        ipv4_address: 192.168.19.40  # Change this to fit your network
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges=true
+    environment:
+      - PUID=1000
+      - PGID=1000
+    env_file:
+      - stack.env  # Load secrets from your existing env file
+    volumes:
+      - /mnt/docker_containers/telegram_concierge_logs:/app/logs
+      - /mnt/docker_containers/telegram_concierge_cache:/home/concierge/.paperless_concierge_cache
+
+networks:
+  default:
+  docker_vlan3:
+    external: true
