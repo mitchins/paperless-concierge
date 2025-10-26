@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+# .git/ - Keep this for setuptools_scm versioning
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.pre-commit-config.yaml
+
+# Development
+tests/
+.env
+.env.*
+*.log
+logs/
+
+# Cache
+.ruff_cache/
+.mypy_cache/
+.paperless_concierge_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Security reports
+bandit-report.json
+safety-report.json
+
+# Coverage
+coverage.xml
+
+# Misc
+Makefile
+setup.py
