@@ -13,7 +13,7 @@
 - Document upload via Telegram with real-time processing status
 - AI-powered document queries (e.g., "When did I buy that laptop?")
 - Phone camera and share sheet integration
-- Multi-user support with per-user configurations
+- Multi-user support with per-user configurations (allow list)
 
 ## How It Works
 
