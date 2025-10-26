@@ -3,12 +3,18 @@ version: '3.8'
 services:
   telegram-concierge:
     build: .
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - PAPERLESS_URL=${PAPERLESS_URL:-http://paperless:8000}
-      - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
-      - PAPERLESS_AI_URL=${PAPERLESS_AI_URL}
-      - PAPERLESS_AI_TOKEN=${PAPERLESS_AI_TOKEN}
+    # For local development, use env_file
+    # For Portainer, use environment with ${VAR} substitution (see docker-compose.example.yml)
+    env_file:
+      - stack.env
+    # Alternatively, use environment variables (comment out env_file above):
+    # environment:
+    #   - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    #   - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+    #   - PAPERLESS_URL=${PAPERLESS_URL:-http://paperless:8000}
+    #   - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+    #   - PAPERLESS_AI_URL=${PAPERLESS_AI_URL}
+    #   - PAPERLESS_AI_TOKEN=${PAPERLESS_AI_TOKEN}
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped

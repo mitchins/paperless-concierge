@@ -2,6 +2,9 @@
 #
 # Add this service to your existing Paperless stack's docker-compose.yml file
 # alongside your webserver, db, and broker services.
+#
+# PORTAINER USERS: Use the environment variable substitution method below.
+# Define these variables in Portainer's stack environment variables section.
 
 services:
   telegram-concierge:
@@ -19,10 +22,14 @@ services:
     security_opt:
       - no-new-privileges=true
     environment:
-      - PUID=1000
-      - PGID=1000
-    env_file:
-      - stack.env  # Load secrets from your existing env file
+      # Required variables - Define these in Portainer's stack environment variables
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS}
+      - PAPERLESS_URL=${PAPERLESS_URL:-http://webserver:8000}
+      - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+      # Optional AI integration
+      - PAPERLESS_AI_URL=${PAPERLESS_AI_URL}
+      - PAPERLESS_AI_TOKEN=${PAPERLESS_AI_TOKEN}
     volumes:
       - /mnt/docker_containers/telegram_concierge_logs:/app/logs
       - /mnt/docker_containers/telegram_concierge_cache:/home/concierge/.paperless_concierge_cache
