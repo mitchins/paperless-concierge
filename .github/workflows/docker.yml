@@ -18,7 +18,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write        # must be write for attestation
       packages: write
       id-token: write  # Required for artifact attestation
 
